@@ -178,50 +178,72 @@ public class LauncherActivity extends Activity {
 
     // --------------------------------------------------------- GPU drivers
 
+    /*
+     * One flat list, applied on tap: in landscape on a phone there is no room for a
+     * radio list plus explanation plus buttons (the buttons ended up off-screen).
+     */
     private void showDriverDialog() {
         final List<GpuDrivers.Driver> drivers = GpuDrivers.installed(this);
         GpuDrivers.Driver current = GpuDrivers.selected(this);
 
-        String[] items = new String[drivers.size() + 1];
-        items[0] = "System driver (default)";
-        int checked = 0;
-        for (int i = 0; i < drivers.size(); i++) {
-            items[i + 1] = drivers.get(i).label();
-            if (current != null && current.dir.equals(drivers.get(i).dir))
-                checked = i + 1;
+        final List<String> items = new ArrayList<>();
+        items.add((current == null ? "✔ " : "    ") + "System driver (default)");
+        for (GpuDrivers.Driver d : drivers) {
+            boolean on = current != null && current.dir.equals(d.dir);
+            items.add((on ? "✔ " : "    ") + d.label());
         }
-        final int[] choice = { checked };
-
-        TextView note = new TextView(this);
-        note.setText("Custom drivers such as Mesa Turnip are loaded with libadrenotools "
-            + "(Snapdragon / Adreno only). Install one from the .zip packages made for emulators. "
-            + "Quake II RTX needs ray tracing (VK_KHR_ray_query); if a driver lacks it or the game "
-            + "fails to start, switch back to the system driver.");
-        note.setPadding(dp(24), dp(8), dp(24), 0);
+        final int installIndex = items.size();
+        items.add("＋ Install driver from .zip…");
+        final int deleteIndex = drivers.isEmpty() ? -1 : items.size();
+        if (deleteIndex >= 0)
+            items.add("✖ Delete a driver…");
+        final int helpIndex = items.size();
+        items.add("ⓘ About custom drivers");
 
         new AlertDialog.Builder(this)
             .setTitle("GPU driver")
-            .setSingleChoiceItems(items, checked, new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface d, int which) { choice[0] = which; }
-            })
-            .setPositiveButton("Use", new DialogInterface.OnClickListener() {
+            .setItems(items.toArray(new String[0]), new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface d, int which) {
-                    GpuDrivers.select(LauncherActivity.this, choice[0] == 0 ? null : drivers.get(choice[0] - 1));
-                    refresh();
-                }
-            })
-            .setNeutralButton("Install .zip…", new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface d, int which) { pickDriverZip(); }
-            })
-            .setNegativeButton("Delete", new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface d, int which) {
-                    if (choice[0] > 0) {
-                        GpuDrivers.delete(LauncherActivity.this, drivers.get(choice[0] - 1));
+                    if (which == 0) {
+                        GpuDrivers.select(LauncherActivity.this, null);
                         refresh();
+                    } else if (which <= drivers.size()) {
+                        GpuDrivers.select(LauncherActivity.this, drivers.get(which - 1));
+                        refresh();
+                    } else if (which == installIndex) {
+                        pickDriverZip();
+                    } else if (which == deleteIndex) {
+                        showDeleteDriverDialog(drivers);
+                    } else if (which == helpIndex) {
+                        new AlertDialog.Builder(LauncherActivity.this)
+                            .setTitle("Custom GPU drivers")
+                            .setMessage("Drivers such as Mesa Turnip are loaded with libadrenotools "
+                                + "(Snapdragon / Adreno only), from the .zip packages made for emulators.\n\n"
+                                + "Quake II RTX needs ray tracing (VK_KHR_ray_query). If a driver lacks it, or the "
+                                + "game doesn't start, pick \"System driver\" again.\n\n"
+                                + "\"Show log\" tells you which driver the game actually used.")
+                            .setPositiveButton("OK", null)
+                            .show();
                     }
                 }
             })
-            .setView(note)
+            .setNegativeButton("Close", null)
+            .show();
+    }
+
+    private void showDeleteDriverDialog(final List<GpuDrivers.Driver> drivers) {
+        String[] names = new String[drivers.size()];
+        for (int i = 0; i < names.length; i++)
+            names[i] = drivers.get(i).label();
+        new AlertDialog.Builder(this)
+            .setTitle("Delete which driver?")
+            .setItems(names, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    GpuDrivers.delete(LauncherActivity.this, drivers.get(which));
+                    refresh();
+                }
+            })
+            .setNegativeButton("Cancel", null)
             .show();
     }
 
