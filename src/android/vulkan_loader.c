@@ -41,9 +41,14 @@ const char *VK_DriverDescription(void)
 
 static void *open_custom_driver(void)
 {
-    cvar_t *dir  = Cvar_Get("vk_driver_dir", "", CVAR_NOSET);
-    cvar_t *name = Cvar_Get("vk_driver_name", "", CVAR_NOSET);
-    cvar_t *hook = Cvar_Get("vk_hook_dir", "", CVAR_NOSET);
+    // No CVAR_NOSET: the engine resets NOSET cvars to their default when they are
+    // first registered after startup (com_initialized), which Vulkan init is - that
+    // threw away the values the launcher passed with +set.
+    cvar_t *dir  = Cvar_Get("vk_driver_dir", "", 0);
+    cvar_t *name = Cvar_Get("vk_driver_name", "", 0);
+    cvar_t *hook = Cvar_Get("vk_hook_dir", "", 0);
+
+    Com_Printf("Vulkan driver setting: dir='%s' name='%s'\n", dir->string, name->string);
 
     if (!dir->string[0] || !name->string[0])
         return NULL;
