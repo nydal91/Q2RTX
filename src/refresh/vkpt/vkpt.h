@@ -20,7 +20,11 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #ifndef  __VKPT_H__
 #define  __VKPT_H__
 
+#ifdef USE_VOLK
+#include <volk.h> /* Android: Vulkan is loaded at runtime, see src/android/vulkan_loader.c */
+#else
 #include <vulkan/vulkan.h>
+#endif
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
 

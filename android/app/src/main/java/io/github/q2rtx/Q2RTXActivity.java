@@ -17,6 +17,12 @@ public class Q2RTXActivity extends SDLActivity {
         return new String[] { "SDL2", "main" };
     }
 
+    /** Command line for the engine: tells it which GPU driver to load (see GpuDrivers). */
+    @Override
+    protected String[] getArguments() {
+        return GpuDrivers.engineArguments(this).toArray(new String[0]);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // Make sure the bundled shaders are in place before the engine looks for them.

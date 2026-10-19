@@ -43,10 +43,11 @@ import java.util.Locale;
 public class LauncherActivity extends Activity {
     private static final String TAG = "Q2RTX";
     private static final int REQUEST_IMPORT = 1;
+    private static final int REQUEST_DRIVER = 2;
     private static final int GREEN = Color.rgb(118, 185, 0);
 
     private TextView status;
-    private Button importButton, playButton;
+    private Button importButton, playButton, driverButton;
     private volatile boolean importing;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -136,6 +137,15 @@ public class LauncherActivity extends Activity {
 
         col.addView(row);
 
+        driverButton = new Button(this);
+        driverButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showDriverDialog(); }
+        });
+        LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp3.topMargin = dp(12);
+        col.addView(driverButton, lp3);
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(Color.rgb(12, 12, 12));
@@ -157,10 +167,95 @@ public class LauncherActivity extends Activity {
         }
         playButton.setEnabled(missing.isEmpty() && !importing);
         importButton.setEnabled(!importing);
+        GpuDrivers.Driver driver = GpuDrivers.selected(this);
+        driverButton.setText("GPU driver: " + (driver == null ? "System" : driver.label()));
+        driverButton.setEnabled(!importing);
     }
 
     private void play() {
         startActivity(new Intent(this, Q2RTXActivity.class));
+    }
+
+    // --------------------------------------------------------- GPU drivers
+
+    private void showDriverDialog() {
+        final List<GpuDrivers.Driver> drivers = GpuDrivers.installed(this);
+        GpuDrivers.Driver current = GpuDrivers.selected(this);
+
+        String[] items = new String[drivers.size() + 1];
+        items[0] = "System driver (default)";
+        int checked = 0;
+        for (int i = 0; i < drivers.size(); i++) {
+            items[i + 1] = drivers.get(i).label();
+            if (current != null && current.dir.equals(drivers.get(i).dir))
+                checked = i + 1;
+        }
+        final int[] choice = { checked };
+
+        TextView note = new TextView(this);
+        note.setText("Custom drivers such as Mesa Turnip are loaded with libadrenotools "
+            + "(Snapdragon / Adreno only). Install one from the .zip packages made for emulators. "
+            + "Quake II RTX needs ray tracing (VK_KHR_ray_query); if a driver lacks it or the game "
+            + "fails to start, switch back to the system driver.");
+        note.setPadding(dp(24), dp(8), dp(24), 0);
+
+        new AlertDialog.Builder(this)
+            .setTitle("GPU driver")
+            .setSingleChoiceItems(items, checked, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) { choice[0] = which; }
+            })
+            .setPositiveButton("Use", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    GpuDrivers.select(LauncherActivity.this, choice[0] == 0 ? null : drivers.get(choice[0] - 1));
+                    refresh();
+                }
+            })
+            .setNeutralButton("Install .zip…", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) { pickDriverZip(); }
+            })
+            .setNegativeButton("Delete", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    if (choice[0] > 0) {
+                        GpuDrivers.delete(LauncherActivity.this, drivers.get(choice[0] - 1));
+                        refresh();
+                    }
+                }
+            })
+            .setView(note)
+            .show();
+    }
+
+    private void pickDriverZip() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] { "application/zip", "application/x-zip-compressed", "application/octet-stream" });
+        startActivityForResult(intent, REQUEST_DRIVER);
+    }
+
+    private void installDriver(final Uri zip) {
+        status.setText("Installing GPU driver…");
+        status.setTextColor(Color.WHITE);
+        new Thread(new Runnable() {
+            @Override public void run() {
+                String msg;
+                try {
+                    GpuDrivers.Driver d = GpuDrivers.install(LauncherActivity.this, zip);
+                    GpuDrivers.select(LauncherActivity.this, d);
+                    msg = "Installed and selected GPU driver: " + d.label() + " (" + d.library + ")";
+                } catch (IOException e) {
+                    Log.e(TAG, "Driver install failed", e);
+                    msg = "Couldn't install the driver: " + e.getMessage();
+                }
+                final String text = msg;
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        refresh();
+                        status.setText(text + "\n\n" + status.getText());
+                    }
+                });
+            }
+        }, "q2rtx-driver").start();
     }
 
     // ----------------------------------------------------------------- log
@@ -245,6 +340,11 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_DRIVER) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null)
+                installDriver(data.getData());
+            return;
+        }
         if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK || data == null || data.getData() == null)
             return;
 

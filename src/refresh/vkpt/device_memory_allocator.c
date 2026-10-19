@@ -18,7 +18,11 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "shared/shared.h"
 
+#ifdef USE_VOLK
+#include <volk.h> /* Android: Vulkan is loaded at runtime, see src/android/vulkan_loader.c */
+#else
 #include <vulkan/vulkan.h>
+#endif
 #include <assert.h>
 
 #include "device_memory_allocator.h"

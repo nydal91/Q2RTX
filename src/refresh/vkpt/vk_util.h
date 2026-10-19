@@ -20,7 +20,11 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #ifndef  __VK_UTIL_H__
 #define  __VK_UTIL_H__
 
+#ifdef USE_VOLK
+#include <volk.h> /* Android: Vulkan is loaded at runtime, see src/android/vulkan_loader.c */
+#else
 #include <vulkan/vulkan.h>
+#endif
 
 char * sgets(char * str, int num, char const ** input);
 

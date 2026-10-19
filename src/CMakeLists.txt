@@ -232,6 +232,7 @@ SET(SRC_LINUX_CLIENT
 
 SET(SRC_ANDROID_CLIENT
 	android/touch.c
+	android/vulkan_loader.c
 )
 
 SET(HEADERS_ANDROID_CLIENT
@@ -474,8 +475,8 @@ ELSEIF(ANDROID)
         ${SRC_SERVER} ${HEADERS_SERVER}
         ${SRC_ANDROID_CLIENT} ${HEADERS_ANDROID_CLIENT}
     )
-    TARGET_COMPILE_DEFINITIONS(client PRIVATE USE_TOUCH=1)
-    TARGET_LINK_LIBRARIES(client log android dl)
+    TARGET_COMPILE_DEFINITIONS(client PRIVATE USE_TOUCH=1 USE_VOLK=1)
+    TARGET_LINK_LIBRARIES(client log android dl volk adrenotools)
     # libmain.so must not depend on anything the APK doesn't ship
     TARGET_LINK_OPTIONS(client PRIVATE "-Wl,--no-undefined")
 ELSE()
@@ -535,7 +536,7 @@ IF (TARGET client)
         ENDIF()
         IF (WIN32)
         TARGET_LINK_LIBRARIES(client vulkan-1)
-        ELSE ()
+        ELSEIF (NOT ANDROID) # Android loads Vulkan at runtime through volk
         TARGET_LINK_LIBRARIES(client vulkan)
         ENDIF()
     ENDIF()

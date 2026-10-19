@@ -42,7 +42,12 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "shader/vertex_buffer.h"
 
+#ifdef USE_VOLK
+#include <volk.h> /* Android: Vulkan is loaded at runtime, see src/android/vulkan_loader.c */
+#include "../../android/vulkan_loader.h"
+#else
 #include <vulkan/vulkan.h>
+#endif
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
 
@@ -935,6 +940,13 @@ init_vulkan(void)
 {
 	Com_Printf("----- init_vulkan -----\n");
 
+#ifdef USE_VOLK
+	if (!VK_LoadLibrary()) {
+		Com_EPrintf("Couldn't load the Vulkan library\n");
+		return false;
+	}
+#endif
+
 	/* layers */
 	get_vk_layer_list(&qvk.num_layers, &qvk.layers);
 	Com_Printf("Available Vulkan layers: \n");
@@ -1033,6 +1045,10 @@ init_vulkan(void)
 		return false;
 	}
 
+#ifdef USE_VOLK
+	volkLoadInstance(qvk.instance);
+#endif
+
 	qvk.supports_debug_utils = available_optional_instance_extensions[OPT_EXT_VK_EXT_DEBUG_UTILS];
 
 	if (qvk.supports_debug_utils)
@@ -1068,10 +1084,17 @@ init_vulkan(void)
 		_VK(qvkCreateDebugUtilsMessengerEXT(qvk.instance, &dbg_create_info, NULL, &qvk.dbg_messenger));
 
 	/* create surface */
+#ifdef USE_VOLK
+	if (VK_CreateWindowSurface(qvk.window, qvk.instance, &qvk.surface) != VK_SUCCESS) {
+		Com_EPrintf("Could not create a Vulkan surface for the window!\n");
+		return false;
+	}
+#else
 	if(!SDL_Vulkan_CreateSurface(qvk.window, qvk.instance, &qvk.surface)) {
 		Com_EPrintf("SDL2 could not create a surface!\n");
 		return false;
 	}
+#endif
 
 	/* pick physical device (iterate over all but pick device 0 anyways) */
 	uint32_t num_devices = 0;
@@ -1250,6 +1273,9 @@ init_vulkan(void)
 			Q_snprintf(qvk.gpu_description, sizeof(qvk.gpu_description), "%s, %s %s, Vulkan %u.%u.%u",
 				p->deviceName, driver_properties.driverName, driver_properties.driverInfo,
 				VK_API_VERSION_MAJOR(p->apiVersion), VK_API_VERSION_MINOR(p->apiVersion), VK_API_VERSION_PATCH(p->apiVersion));
+#ifdef USE_VOLK
+			Q_strlcat(qvk.gpu_description, va(" (%s)", VK_DriverDescription()), sizeof(qvk.gpu_description));
+#endif
 			Com_Printf("GPU: %s\n", qvk.gpu_description);
 			Com_Printf("Limits: perStage samplers=%u uniformBuffers=%u storageBuffers=%u sampledImages=%u storageImages=%u resources=%u\n",
 				l->maxPerStageDescriptorSamplers, l->maxPerStageDescriptorUniformBuffers, l->maxPerStageDescriptorStorageBuffers,
@@ -1597,6 +1623,10 @@ init_vulkan(void)
 		Com_Error(ERR_FATAL, "Failed to create a Vulkan device.\nError code: %s", qvk_result_to_string(result));
 		return false;
 	}
+
+#ifdef USE_VOLK
+	volkLoadDevice(qvk.device);
+#endif
 
 	vkGetDeviceQueue(qvk.device, qvk.queue_idx_graphics, 0, &qvk.queue_graphics);
 	vkGetDeviceQueue(qvk.device, qvk.queue_idx_transfer, 0, &qvk.queue_transfer);
@@ -3484,7 +3514,11 @@ recreate_surface(void)
 		qvk.surface = VK_NULL_HANDLE;
 	}
 
+#ifdef USE_VOLK
+	if (VK_CreateWindowSurface(qvk.window, qvk.instance, &qvk.surface) != VK_SUCCESS) {
+#else
 	if (!SDL_Vulkan_CreateSurface(qvk.window, qvk.instance, &qvk.surface)) {
+#endif
 		/* typically still in the background; try again next frame */
 		qvk.surface = VK_NULL_HANDLE;
 		return false;

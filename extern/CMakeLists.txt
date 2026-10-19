@@ -119,6 +119,18 @@ if(CONFIG_USE_CURL)
 endif()
 
 
+if (ANDROID)
+    # Android: load libvulkan at runtime (volk), optionally through libadrenotools so
+    # custom drivers such as Mesa Turnip can be used instead of the system driver.
+    add_library(volk STATIC volk/volk.c)
+    target_include_directories(volk PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/volk ${CMAKE_CURRENT_SOURCE_DIR}/Vulkan-Headers/include)
+    target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_ANDROID_KHR VK_NO_PROTOTYPES)
+    target_link_libraries(volk PUBLIC dl)
+    set_target_properties(volk PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+    add_subdirectory(libadrenotools)
+endif()
+
 add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb)
 

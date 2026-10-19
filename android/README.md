@@ -65,6 +65,22 @@ Keyboard and mouse (USB, Bluetooth, Samsung DeX, Chromebooks) work like on the d
 Console variables: `touch_enable`, `touch_sens`, `touch_alpha`, `touch_stick_size`,
 `joy_sens`, `joy_invert`, `joy_deadzone`.
 
+## Custom GPU drivers (Turnip)
+
+On Snapdragon phones the launcher can load a custom Vulkan driver, such as Mesa's
+open-source **Turnip** driver, instead of the one that ships with the phone. It uses
+[libadrenotools](https://github.com/bylaws/libadrenotools), like the Switch emulators do.
+
+1. Download a driver package (`.zip` with a `.so` and `meta.json`; the Turnip builds made for
+   emulators work).
+2. In the launcher tap **GPU driver → Install .zip…** and pick it. It is copied into the app's
+   private storage and selected.
+3. Tap **Play**. The log (**Show log**) says which driver was used; if the custom one fails to
+   load, the game falls back to the system driver.
+
+Quake II RTX needs `VK_KHR_ray_query`, which not every Turnip build supports on every Adreno.
+Switch back with **GPU driver → System driver** if the game doesn't start.
+
 ## Performance
 
 Path tracing is heavy for a phone. Mobile defaults (applied before your saved config, so menu

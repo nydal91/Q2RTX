@@ -23,3 +23,9 @@
 [submodule "extern/openal-soft"]
 	path = extern/openal-soft
 	url = https://github.com/kcat/openal-soft.git
+[submodule "extern/libadrenotools"]
+	path = extern/libadrenotools
+	url = https://github.com/bylaws/libadrenotools
+[submodule "extern/volk"]
+	path = extern/volk
+	url = https://github.com/zeux/volk

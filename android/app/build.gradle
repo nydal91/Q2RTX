@@ -17,8 +17,8 @@ android {
         // with hardware ray tracing ships Android 13+ anyway.
         minSdk 29
         targetSdk 34
-        versionCode 10807
-        versionName "1.8.1-android.7"
+        versionCode 10808
+        versionName "1.8.1-android.8"
 
         ndk {
             // Ray-tracing capable mobile GPUs are all 64-bit ARM SoCs.
@@ -34,8 +34,10 @@ android {
                           "-DCONFIG_USE_CURL=OFF",
                           "-DCONFIG_GL_RENDERER=OFF",
                           "-DCONFIG_VKPT_ENABLE_DEVICE_GROUPS=OFF"
-                // libmain.so (engine+client), libgame.so (baseq2 game module), libSDL2.so
-                targets "client", "game", "SDL2"
+                // libmain.so (engine+client), libgame.so (baseq2 game module), libSDL2.so,
+                // and libadrenotools' hook libraries for loading custom GPU drivers
+                targets "client", "game", "SDL2",
+                        "hook_impl", "main_hook", "file_redirect_hook", "gsl_alloc_hook"
             }
         }
     }
@@ -74,8 +76,9 @@ android {
 
     packaging {
         jniLibs {
-            // keep .so files uncompressed so dlopen("libgame.so") maps them from the APK
-            useLegacyPackaging false
+            // extract the libraries to nativeLibraryDir on install: libadrenotools loads its
+            // hook libraries from there by path (needed for custom GPU drivers)
+            useLegacyPackaging true
         }
     }
 
