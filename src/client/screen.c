@@ -18,6 +18,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 // cl_scrn.c -- master for refresh, status bar, console, chat, notify, etc
 
 #include "client.h"
+#if USE_TOUCH
+#include "../android/touch.h"
+#endif
 #include "refresh/images.h"
 
 #define STAT_PICS       11
@@ -2133,6 +2136,12 @@ static void SCR_DrawActive(void)
 
     // draw all 2D elements
     SCR_Draw2D();
+
+#if USE_TOUCH
+    // on-screen touch controls go on top of the HUD
+    if (scr_draw2d->integer > 0)
+        TOUCH_Draw();
+#endif
 }
 
 //=======================================================

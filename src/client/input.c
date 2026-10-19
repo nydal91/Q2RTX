@@ -18,6 +18,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 // cl.input.c  -- builds an intended movement command to send to the server
 
 #include "client.h"
+#if USE_TOUCH
+#include "../android/touch.h"
+#endif
 
 static cvar_t    *cl_nodelta;
 static cvar_t    *cl_maxpackets;
@@ -612,6 +615,20 @@ void CL_UpdateCmd(int msec)
 
     // allow mice to add to the move
     CL_MouseMove();
+
+#if USE_TOUCH
+    // touch stick / game controller: analog movement and turning
+    {
+        float fwd, side, yaw, pitch;
+        TOUCH_GetAnalog(msec, &fwd, &side, &yaw, &pitch);
+        // full deflection = running speed, matching cl_run behaviour of the keys
+        float run = (cl_run->integer ^ (in_speed.state & 1)) ? 2.0f : 1.0f;
+        cl.localmove[0] += fwd * cl_forwardspeed->value * run;
+        cl.localmove[1] += side * cl_sidespeed->value * run;
+        cl.viewangles[YAW] += yaw;
+        cl.viewangles[PITCH] += pitch;
+    }
+#endif
 
     // add accumulated mouse forward/side movement
     cl.localmove[0] += cl.mousemove[0];

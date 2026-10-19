@@ -419,12 +419,12 @@ const char *vk_validation_layers[] = {
 };
 
 const char *vk_requested_instance_extensions[] = {
-	VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-	VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
 #ifdef VKPT_DEVICE_GROUPS
 	VK_KHR_DEVICE_GROUP_CREATION_EXTENSION_NAME,
 #endif
+	NULL /* keeps the array non-empty; not counted */
 };
+#define NUM_REQUESTED_INSTANCE_EXTENSIONS (LENGTH(vk_requested_instance_extensions) - 1)
 
 const char *vk_requested_device_extensions_common[] = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -447,8 +447,12 @@ const char* vk_requested_device_extensions_ray_query[] = {
 	VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME
 };
 
+/* The debug extensions are optional: Android (and some Linux drivers) only
+ * expose them when a validation layer is loaded. */
 #define OPTIONAL_INSTANCE_EXTENSIONS		\
-	VK_OPT_EXT_DO(VK_EXT_SWAPCHAIN_COLOR_SPACE)
+	VK_OPT_EXT_DO(VK_EXT_SWAPCHAIN_COLOR_SPACE)	\
+	VK_OPT_EXT_DO(VK_EXT_DEBUG_UTILS)		\
+	VK_OPT_EXT_DO(VK_EXT_DEBUG_REPORT)
 
 enum optional_instance_extension_id
 {
@@ -622,6 +626,16 @@ static bool pick_surface_format_sdr(picked_surface_format_t* picked_fmt, const V
 	return false;
 }
 
+#ifdef __ANDROID__
+/* We deliberately present with an identity pre-transform (see create_swapchain),
+ * which Android reports as VK_SUBOPTIMAL_KHR on every frame while the display is
+ * rotated. Recreating the swapchain would not change that, so only react to
+ * VK_ERROR_OUT_OF_DATE_KHR there. */
+#define SUBOPTIMAL_NEEDS_RECREATE 0
+#else
+#define SUBOPTIMAL_NEEDS_RECREATE 1
+#endif
+
 VkResult
 create_swapchain(void)
 {
@@ -672,12 +686,13 @@ create_swapchain(void)
 	VkPresentModeKHR *avail_present_modes = alloca(sizeof(VkPresentModeKHR) * num_present_modes);
 	vkGetPhysicalDeviceSurfacePresentModesKHR(qvk.physical_device, qvk.surface, &num_present_modes, avail_present_modes);
 	bool immediate_mode_available = false;
+	bool mailbox_mode_available = false;
 
 	for (int i = 0; i < num_present_modes; i++) {
-		if (avail_present_modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+		if (avail_present_modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR)
 			immediate_mode_available = true;
-			break;
-		}
+		if (avail_present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
+			mailbox_mode_available = true;
 	}
 
 	qvk.surf_vsync = (cvar_vsync->integer != 0);
@@ -686,12 +701,29 @@ create_swapchain(void)
 		qvk.present_mode = VK_PRESENT_MODE_FIFO_KHR;
 	} else if (immediate_mode_available) {
 		qvk.present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
-	} else {
+	} else if (mailbox_mode_available) {
 		qvk.present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+	} else {
+		// FIFO is the only mode the spec guarantees (and often the only one on Android)
+		qvk.present_mode = VK_PRESENT_MODE_FIFO_KHR;
 	}
 
+	VkSurfaceTransformFlagBitsKHR pre_transform = surf_capabilities.currentTransform;
 	if(surf_capabilities.currentExtent.width != ~0u) {
 		qvk.extent_unscaled = surf_capabilities.currentExtent;
+#ifdef __ANDROID__
+		// Android reports the surface in the display's native (usually portrait)
+		// orientation plus a rotation. We render unrotated and let the compositor
+		// rotate, so the extent has to be swapped to match the landscape window.
+		if (surf_capabilities.currentTransform & (VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR | VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR |
+			VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR | VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR)) {
+			uint32_t w = qvk.extent_unscaled.width;
+			qvk.extent_unscaled.width = qvk.extent_unscaled.height;
+			qvk.extent_unscaled.height = w;
+		}
+		if (surf_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+			pre_transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+#endif
 	}
 	else {
 		qvk.extent_unscaled.width = min(surf_capabilities.maxImageExtent.width, qvk.draw_width);
@@ -699,6 +731,22 @@ create_swapchain(void)
 
 		qvk.extent_unscaled.width = max(surf_capabilities.minImageExtent.width, qvk.extent_unscaled.width);
 		qvk.extent_unscaled.height = max(surf_capabilities.minImageExtent.height, qvk.extent_unscaled.height);
+	}
+
+	VkCompositeAlphaFlagBitsKHR composite_alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	if (!(surf_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)) {
+		// Android surfaces commonly only advertise INHERIT
+		static const VkCompositeAlphaFlagBitsKHR fallbacks[] = {
+			VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+			VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+			VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
+		};
+		for (int i = 0; i < LENGTH(fallbacks); i++) {
+			if (surf_capabilities.supportedCompositeAlpha & fallbacks[i]) {
+				composite_alpha = fallbacks[i];
+				break;
+			}
+		}
 	}
 
 	uint32_t num_images = max(surf_capabilities.minImageCount, 2);
@@ -719,8 +767,8 @@ create_swapchain(void)
 		.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE, /* VK_SHARING_MODE_CONCURRENT if not using same queue */
 		.queueFamilyIndexCount = 0,
 		.pQueueFamilyIndices   = NULL,
-		.preTransform          = surf_capabilities.currentTransform,
-		.compositeAlpha        = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, /* no alpha for window transparency */
+		.preTransform          = pre_transform,
+		.compositeAlpha        = composite_alpha, /* opaque when available: no alpha for window transparency */
 		.presentMode           = qvk.present_mode,
 		.clipped               = VK_FALSE, /* do not render pixels that are occluded by other windows */
 		//.clipped               = VK_TRUE, /* do not render pixels that are occluded by other windows */
@@ -891,13 +939,13 @@ init_vulkan(void)
 		Com_Printf("  %s\n", qvk.sdl2_extensions[i]);
 	}
 
-	int num_inst_ext_max = qvk.num_sdl2_extensions + LENGTH(vk_requested_instance_extensions) + NUM_OPTIONAL_INSTANCE_EXTENSIONS;
+	int num_inst_ext_max = qvk.num_sdl2_extensions + NUM_REQUESTED_INSTANCE_EXTENSIONS + NUM_OPTIONAL_INSTANCE_EXTENSIONS;
 	const char **ext = alloca(sizeof(const char *) * num_inst_ext_max);
 	int num_inst_ext_combined = 0;
 	memcpy(ext + num_inst_ext_combined, qvk.sdl2_extensions, qvk.num_sdl2_extensions * sizeof(*qvk.sdl2_extensions));
 	num_inst_ext_combined += qvk.num_sdl2_extensions;
-	memcpy(ext + num_inst_ext_combined, vk_requested_instance_extensions, sizeof(vk_requested_instance_extensions));
-	num_inst_ext_combined += LENGTH(vk_requested_instance_extensions);
+	memcpy(ext + num_inst_ext_combined, vk_requested_instance_extensions, NUM_REQUESTED_INSTANCE_EXTENSIONS * sizeof(*vk_requested_instance_extensions));
+	num_inst_ext_combined += NUM_REQUESTED_INSTANCE_EXTENSIONS;
 
 	bool available_optional_instance_extensions[NUM_OPTIONAL_INSTANCE_EXTENSIONS] = { false };
 
@@ -964,11 +1012,22 @@ init_vulkan(void)
 		return false;
 	}
 
+	qvk.supports_debug_utils = available_optional_instance_extensions[OPT_EXT_VK_EXT_DEBUG_UTILS];
+
+	if (qvk.supports_debug_utils)
+	{
 #define VK_EXTENSION_DO(a) \
 		q##a = (PFN_##a) vkGetInstanceProcAddr(qvk.instance, #a); \
 		if (!q##a) { Com_EPrintf("warning: could not load instance function %s\n", #a); }
 	LIST_EXTENSIONS_INSTANCE
 #undef VK_EXTENSION_DO
+	}
+	else
+	{
+#define VK_EXTENSION_DO(a) q##a = NULL;
+	LIST_EXTENSIONS_INSTANCE
+#undef VK_EXTENSION_DO
+	}
 
 	/* setup debug callback */
 	VkDebugUtilsMessengerCreateInfoEXT dbg_create_info = {
@@ -983,7 +1042,9 @@ init_vulkan(void)
 		.pUserData = NULL
 	};
 
-	_VK(qvkCreateDebugUtilsMessengerEXT(qvk.instance, &dbg_create_info, NULL, &qvk.dbg_messenger));
+	qvk.dbg_messenger = VK_NULL_HANDLE;
+	if (qvk.supports_debug_utils)
+		_VK(qvkCreateDebugUtilsMessengerEXT(qvk.instance, &dbg_create_info, NULL, &qvk.dbg_messenger));
 
 	/* create surface */
 	if(!SDL_Vulkan_CreateSurface(qvk.window, qvk.instance, &qvk.surface)) {
@@ -1233,6 +1294,11 @@ init_vulkan(void)
 	VkPhysicalDevice16BitStorageFeatures features_16bit_storage = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
 	};
+	// Core features actually supported by the device. Mobile GPUs leave several
+	// "desktop" features unsupported, and requesting an unsupported feature makes
+	// vkCreateDevice fail, so optional ones are masked against this below.
+	VkPhysicalDeviceFeatures supported_features = { 0 };
+	VkPhysicalDeviceVulkan12Features supported_features_1_2 = { 0 };
 	{
 		VkPhysicalDeviceVulkan12Features device_features_1_2 = {
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -1250,11 +1316,34 @@ init_vulkan(void)
 			device_features.pNext = &device_features_lines;
 		}
 		vkGetPhysicalDeviceFeatures2(qvk.physical_device, &device_features);
+		supported_features = device_features.features;
+		supported_features_1_2 = device_features_1_2;
+		supported_features_1_2.pNext = NULL;
 		qvk.supports_fp16 = device_features_1_2.shaderFloat16 && features_16bit_storage.storageBuffer16BitAccess;
 		qvk.supports_debug_lines = device_features.features.fillModeNonSolid && device_features.features.wideLines;
 		qvk.supports_smooth_lines = qvk.supports_debug_lines && device_features_lines.smoothLines;
 	}
 	Com_Printf("FP16 support: %s\n", qvk.supports_fp16 ? "yes" : "no");
+
+	{
+		// Features the renderer cannot work without.
+		struct { const char *name; VkBool32 supported; } required[] = {
+			{ "descriptorIndexing", supported_features_1_2.descriptorIndexing },
+			{ "runtimeDescriptorArray", supported_features_1_2.runtimeDescriptorArray },
+			{ "shaderSampledImageArrayNonUniformIndexing", supported_features_1_2.shaderSampledImageArrayNonUniformIndexing },
+			{ "shaderStorageBufferArrayNonUniformIndexing", supported_features_1_2.shaderStorageBufferArrayNonUniformIndexing },
+			{ "bufferDeviceAddress", supported_features_1_2.bufferDeviceAddress },
+			{ "samplerAnisotropy", supported_features.samplerAnisotropy },
+		};
+		for (int i = 0; i < LENGTH(required); i++) {
+			if (!required[i].supported)
+				Com_Error(ERR_FATAL, "The Vulkan device does not support the required feature '%s'.", required[i].name);
+		}
+	}
+	qvk.supports_minmax_filter = supported_features_1_2.samplerFilterMinmax;
+	Com_Printf("Optional features: robustBufferAccess=%d pipelineStatisticsQuery=%d shaderStorageImageExtendedFormats=%d samplerFilterMinmax=%d\n",
+		supported_features.robustBufferAccess, supported_features.pipelineStatisticsQuery,
+		supported_features.shaderStorageImageExtendedFormats, supported_features_1_2.samplerFilterMinmax);
 	Com_Printf("Debug lines support: %s%s\n", qvk.supports_debug_lines ? "yes" : "no", qvk.supports_smooth_lines ? " (smooth)" : "");
 
 	vkGetPhysicalDeviceMemoryProperties(qvk.physical_device, &qvk.mem_properties);
@@ -1350,7 +1439,7 @@ init_vulkan(void)
 		.shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
 		.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE,
 		.runtimeDescriptorArray = VK_TRUE,
-		.samplerFilterMinmax = VK_TRUE,
+		.samplerFilterMinmax = supported_features_1_2.samplerFilterMinmax,
 		.bufferDeviceAddress = VK_TRUE,
 		.bufferDeviceAddressMultiDevice = qvk.device_count > 1 ? VK_TRUE : VK_FALSE,
 	};
@@ -1358,10 +1447,10 @@ init_vulkan(void)
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR,
 		.pNext = &device_features_vk12,
 		.features = {
-			.robustBufferAccess = VK_TRUE,
-			.fullDrawIndexUint32 = VK_TRUE,
-			.imageCubeArray = VK_TRUE,
-			.independentBlend = VK_TRUE,
+			.robustBufferAccess = supported_features.robustBufferAccess,
+			.fullDrawIndexUint32 = supported_features.fullDrawIndexUint32,
+			.imageCubeArray = supported_features.imageCubeArray,
+			.independentBlend = supported_features.independentBlend,
 			.geometryShader = VK_FALSE,
 			.tessellationShader = VK_FALSE,
 			.sampleRateShading = VK_FALSE,
@@ -1382,19 +1471,19 @@ init_vulkan(void)
 			.textureCompressionASTC_LDR = VK_FALSE,
 			.textureCompressionBC = VK_FALSE,
 			.occlusionQueryPrecise = VK_FALSE,
-			.pipelineStatisticsQuery = VK_TRUE,
+			.pipelineStatisticsQuery = supported_features.pipelineStatisticsQuery,
 			.vertexPipelineStoresAndAtomics = VK_FALSE,
 			.fragmentStoresAndAtomics = VK_FALSE,
 			.shaderTessellationAndGeometryPointSize = VK_FALSE,
 			.shaderImageGatherExtended = VK_FALSE,
-			.shaderStorageImageExtendedFormats = VK_TRUE,
+			.shaderStorageImageExtendedFormats = supported_features.shaderStorageImageExtendedFormats,
 			.shaderStorageImageMultisample = VK_FALSE,
 			.shaderStorageImageReadWithoutFormat = VK_FALSE,
 			.shaderStorageImageWriteWithoutFormat = VK_FALSE,
-			.shaderUniformBufferArrayDynamicIndexing = VK_TRUE,
+			.shaderUniformBufferArrayDynamicIndexing = supported_features.shaderUniformBufferArrayDynamicIndexing,
 			.shaderSampledImageArrayDynamicIndexing = VK_TRUE,
 			.shaderStorageBufferArrayDynamicIndexing = VK_TRUE,
-			.shaderStorageImageArrayDynamicIndexing = VK_TRUE,
+			.shaderStorageImageArrayDynamicIndexing = supported_features.shaderStorageImageArrayDynamicIndexing,
 			.shaderClipDistance = VK_FALSE,
 			.shaderCullDistance = VK_FALSE,
 			.shaderFloat64 = VK_FALSE,
@@ -1644,7 +1733,9 @@ destroy_vulkan(void)
 	vkDestroyCommandPool(qvk.device, qvk.cmd_buffers_transfer.command_pool, NULL);
 
 	vkDestroyDevice(qvk.device,   NULL);
-	_VK(qvkDestroyDebugUtilsMessengerEXT(qvk.instance, qvk.dbg_messenger, NULL));
+	if (qvk.dbg_messenger != VK_NULL_HANDLE)
+		_VK(qvkDestroyDebugUtilsMessengerEXT(qvk.instance, qvk.dbg_messenger, NULL));
+	qvk.dbg_messenger = VK_NULL_HANDLE;
 	vkDestroyInstance(qvk.instance, NULL);
 
 	free(qvk.extensions);
@@ -3541,7 +3632,7 @@ retry:;
 	VkResult res_swapchain = vkAcquireNextImageKHR(qvk.device, qvk.swap_chain, ~((uint64_t) 0),
 		qvk.semaphores[qvk.current_frame_index][0].image_available, VK_NULL_HANDLE, &qvk.current_swap_chain_image_index);
 #endif
-	if(res_swapchain == VK_ERROR_OUT_OF_DATE_KHR || res_swapchain == VK_SUBOPTIMAL_KHR) {
+	if(res_swapchain == VK_ERROR_OUT_OF_DATE_KHR || (res_swapchain == VK_SUBOPTIMAL_KHR && SUBOPTIMAL_NEEDS_RECREATE)) {
 		recreate_swapchain();
 		goto retry;
 	}
@@ -3693,7 +3784,7 @@ R_EndFrame_RTX(void)
 #endif
 
 	VkResult res_present = vkQueuePresentKHR(qvk.queue_graphics, &present_info);
-	if(res_present == VK_ERROR_OUT_OF_DATE_KHR || res_present == VK_SUBOPTIMAL_KHR) {
+	if(res_present == VK_ERROR_OUT_OF_DATE_KHR || (res_present == VK_SUBOPTIMAL_KHR && SUBOPTIMAL_NEEDS_RECREATE)) {
 		recreate_swapchain();
 	}
 	qvk.frame_counter++;

@@ -623,8 +623,37 @@ void Sys_RunConsole(void)
     tty_parse_input(text);
 }
 
+#ifdef __ANDROID__
+#include <android/log.h>
+
+// Collect console text into lines and forward each line to logcat ("adb logcat -s Q2RTX").
+static void android_log_output(const char *text, size_t len)
+{
+    static char line[1024];
+    static size_t used;
+
+    for (size_t i = 0; i < len; i++) {
+        char c = text[i];
+        if (c == '\n' || used == sizeof(line) - 1) {
+            line[used] = 0;
+            __android_log_write(ANDROID_LOG_INFO, "Q2RTX", line);
+            used = 0;
+            if (c == '\n')
+                continue;
+        }
+        // strip Q2 color escapes and other control characters
+        if ((unsigned char)c >= 32 || c == '\t')
+            line[used++] = c & 127;
+    }
+}
+#endif
+
 void Sys_ConsoleOutput(const char *text, size_t len)
 {
+#ifdef __ANDROID__
+    android_log_output(text, len);
+#endif
+
     if (!sys_console || !sys_console->integer) {
         return;
     }

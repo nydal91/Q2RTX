@@ -8,7 +8,9 @@ set(Q2RTX_VERSION_MAJOR 1)
 set(Q2RTX_VERSION_MINOR 8)
 set(Q2RTX_VERSION_POINT 1)
 
-# get short-hash
+# get short-hash (falls back to "unknown" outside a git checkout)
+set(Q2RTX_VERSION_SHA "unknown")
+set(Q2RTX_VERSION_BRANCH "unknown")
 execute_process(
 	COMMAND git rev-parse --short HEAD
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -25,15 +27,30 @@ execute_process(
 )
 
 
-OPTION(CONFIG_GL_RENDERER "Enable GL renderer" ON)
+IF(ANDROID)
+    # Android port: Vulkan path tracer only, no multi-GPU, no HTTP downloads,
+    # and shaders are compiled on the build host (see android/README.md).
+    SET(DEFAULT_GL_RENDERER OFF)
+    SET(DEFAULT_DEVICE_GROUPS OFF)
+    SET(DEFAULT_USE_CURL OFF)
+    SET(DEFAULT_COMPILE_SHADERS OFF)
+ELSE()
+    SET(DEFAULT_GL_RENDERER ON)
+    SET(DEFAULT_DEVICE_GROUPS ON)
+    SET(DEFAULT_USE_CURL ON)
+    SET(DEFAULT_COMPILE_SHADERS ON)
+ENDIF()
+
+OPTION(CONFIG_GL_RENDERER "Enable GL renderer" ${DEFAULT_GL_RENDERER})
 OPTION(CONFIG_VKPT_RENDERER "Enable VKPT renderer" ON)
-OPTION(CONFIG_VKPT_ENABLE_DEVICE_GROUPS "Enable device groups (multi-gpu) support" ON)
+OPTION(CONFIG_VKPT_ENABLE_DEVICE_GROUPS "Enable device groups (multi-gpu) support" ${DEFAULT_DEVICE_GROUPS})
+OPTION(CONFIG_COMPILE_SHADERS "Compile the VKPT shaders as part of the build" ${DEFAULT_COMPILE_SHADERS})
 OPTION(CONFIG_VKPT_ENABLE_IMAGE_DUMPS "Enable image dumping functionality" OFF)
-OPTION(CONFIG_USE_CURL "Use CURL for HTTP support" ON)
+OPTION(CONFIG_USE_CURL "Use CURL for HTTP support" ${DEFAULT_USE_CURL})
 OPTION(CONFIG_LINUX_PACKAGING_SUPPORT "Enable Linux Packaging support" OFF)
 OPTION(CONFIG_LINUX_PACKAGING_SKIP_PKZ "Skip zipping the game contents into .pkz when packaging (for quicker iteration)" OFF)
 OPTION(CONFIG_LINUX_STEAM_RUNTIME_SUPPORT "Enable Linux Steam Runtime support" OFF)
-IF(WIN32)
+IF(WIN32 OR NOT CONFIG_COMPILE_SHADERS)
     SET(DEFAULT_BUILD_GLSLANG OFF)
 ELSE()
     SET(DEFAULT_BUILD_GLSLANG ON)

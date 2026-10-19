@@ -2405,7 +2405,12 @@ static VkResult lazy_image_create(vkpt_lazy_image_t *lazy_image, int w, int h, V
 #endif
 
 	VkDeviceSize image_size = 0;
-	VkResult create_result = create_image(&image_create_info, &lazy_image->image, &lazy_image->image_mem, lazy_image->image_local, &image_size);
+#ifdef VKPT_DEVICE_GROUPS
+	VkImage *images_local = lazy_image->image_local;
+#else
+	VkImage *images_local = NULL; /* per-GPU copies only exist in multi-GPU builds */
+#endif
+	VkResult create_result = create_image(&image_create_info, &lazy_image->image, &lazy_image->image_mem, images_local, &image_size);
 	if (create_result != VK_SUCCESS)
 	{
 		Com_Printf("Memory allocation error. Failed chunk = %.2f MB\n", (float)image_size / megabyte);

@@ -915,6 +915,14 @@ void SV_InitGameProgs(void)
     if (sys_forcegamelib->string[0])
         entry = SV_LoadGameLibraryFrom(sys_forcegamelib->string);
 
+#ifdef __ANDROID__
+    // Android only allows loading native code from the APK's library directory,
+    // and the dynamic linker resolves bare library names there. The baseq2 game
+    // module ships in the APK as libgame.so.
+    if (!entry)
+        entry = SV_LoadGameLibraryFrom("libgame.so");
+#endif
+
     // try game first
     if (!entry && fs_game->string[0]) {
         if (sys_homedir->string[0])

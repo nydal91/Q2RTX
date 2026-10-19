@@ -67,7 +67,7 @@ VkResult vkpt_initialize_god_rays(void)
 
 	const VkSamplerCreateInfo sampler_create_info = {
 		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		.pNext = &redutcion_create_info,
+		.pNext = qvk.supports_minmax_filter ? &redutcion_create_info : NULL, /* min reduction is optional on mobile */
 		.magFilter = VK_FILTER_LINEAR,
 		.minFilter = VK_FILTER_LINEAR,
 		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,

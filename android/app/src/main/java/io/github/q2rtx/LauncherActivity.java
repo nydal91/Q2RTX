@@ -1,0 +1,318 @@
+package io.github.q2rtx;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.database.Cursor;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.DocumentsContract;
+import android.util.Log;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * First screen: shows whether the game data is in place, lets the player import it
+ * from any folder (Storage Access Framework, so no storage permission is needed),
+ * and starts the game.
+ */
+public class LauncherActivity extends Activity {
+    private static final String TAG = "Q2RTX";
+    private static final int REQUEST_IMPORT = 1;
+    private static final int GREEN = Color.rgb(118, 185, 0);
+
+    private TextView status;
+    private Button importButton, playButton;
+    private volatile boolean importing;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        GameData.extractBundled(this);
+        setContentView(buildLayout());
+        refresh();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!importing)
+            refresh();
+    }
+
+    // ------------------------------------------------------------------ UI
+
+    private int dp(float v) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
+    }
+
+    private View buildLayout() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(32), dp(24), dp(32), dp(24));
+        col.setBackgroundColor(Color.rgb(12, 12, 12));
+
+        TextView title = new TextView(this);
+        title.setText("QUAKE II RTX");
+        title.setTextColor(GREEN);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        col.addView(title);
+
+        TextView info = new TextView(this);
+        info.setTextColor(Color.LTGRAY);
+        info.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        info.setText(
+            "Requires a GPU with Vulkan ray tracing (VK_KHR_ray_query): Snapdragon 8 Gen 2 or newer, "
+            + "Exynos 2200/2400, Dimensity 9200 or newer.\n\n"
+            + "Game data is not included. Copy the baseq2 folder of a Quake II RTX install "
+            + "(Steam or the GitHub release; it contains q2rtx_media.pkz, blue_noise.pkz and pak0.pak) "
+            + "to this device, then tap Import and pick that folder (or the folder containing it).\n\n"
+            + "You can also copy the files over USB into:\n" + GameData.baseq2(this).getAbsolutePath());
+        info.setPadding(0, dp(8), 0, dp(16));
+        col.addView(info);
+
+        status = new TextView(this);
+        status.setTextColor(Color.WHITE);
+        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        status.setPadding(0, 0, 0, dp(16));
+        col.addView(status);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.START);
+
+        importButton = new Button(this);
+        importButton.setText("Import game data…");
+        importButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { pickFolder(); }
+        });
+        row.addView(importButton);
+
+        playButton = new Button(this);
+        playButton.setText("Play");
+        playButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { play(); }
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(16);
+        row.addView(playButton, lp);
+
+        col.addView(row);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(Color.rgb(12, 12, 12));
+        scroll.addView(col);
+        return scroll;
+    }
+
+    private void refresh() {
+        List<String> missing = GameData.missingFiles(this);
+        if (missing.isEmpty()) {
+            status.setText("✔ Game data found. Ready to play.");
+            status.setTextColor(GREEN);
+        } else {
+            StringBuilder sb = new StringBuilder("Missing:\n");
+            for (String m : missing)
+                sb.append("  • ").append(m).append('\n');
+            status.setText(sb.toString().trim());
+            status.setTextColor(Color.rgb(255, 180, 60));
+        }
+        playButton.setEnabled(missing.isEmpty() && !importing);
+        importButton.setEnabled(!importing);
+    }
+
+    private void play() {
+        startActivity(new Intent(this, Q2RTXActivity.class));
+    }
+
+    // -------------------------------------------------------------- import
+
+    private void pickFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(intent, REQUEST_IMPORT);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK || data == null || data.getData() == null)
+            return;
+
+        final Uri tree = data.getData();
+        importing = true;
+        refresh();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                String result;
+                try {
+                    result = importTree(tree);
+                } catch (Exception e) {
+                    Log.e(TAG, "Import failed", e);
+                    result = "Import failed: " + e.getMessage();
+                }
+                final String msg = result;
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        importing = false;
+                        refresh();
+                        if (msg != null)
+                            status.setText(msg + "\n\n" + status.getText());
+                    }
+                });
+            }
+        }, "q2rtx-import").start();
+    }
+
+    private static final String[] CHILD_COLUMNS = {
+        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        DocumentsContract.Document.COLUMN_MIME_TYPE,
+        DocumentsContract.Document.COLUMN_SIZE,
+    };
+
+    private static final class Entry {
+        String id, name;
+        boolean dir;
+        long size;
+    }
+
+    private List<Entry> children(Uri tree, String docId) {
+        List<Entry> out = new java.util.ArrayList<>();
+        Uri uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId);
+        try (Cursor c = getContentResolver().query(uri, CHILD_COLUMNS, null, null, null)) {
+            while (c != null && c.moveToNext()) {
+                Entry e = new Entry();
+                e.id = c.getString(0);
+                e.name = c.getString(1);
+                e.dir = DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2));
+                e.size = c.isNull(3) ? 0 : c.getLong(3);
+                out.add(e);
+            }
+        }
+        return out;
+    }
+
+    /** Files that are never imported: desktop binaries, and things the APK provides itself. */
+    private static boolean skip(String name, boolean dir) {
+        String n = name.toLowerCase(Locale.ROOT);
+        if (dir)
+            return n.equals("shader_vkpt") || n.startsWith(".");
+        return n.endsWith(".dll") || n.endsWith(".so") || n.endsWith(".exe") || n.endsWith(".dylib")
+            || n.equals("shaders.pkz") || n.startsWith(".");
+    }
+
+    private long totalBytes, doneBytes, lastUpdate;
+    private int fileCount;
+
+    private String importTree(Uri tree) throws IOException {
+        String rootId = DocumentsContract.getTreeDocumentId(tree);
+
+        // Accept the Quake II folder itself or its baseq2 subfolder.
+        String sourceId = rootId;
+        for (Entry e : children(tree, rootId)) {
+            if (e.dir && e.name.equalsIgnoreCase("baseq2")) {
+                sourceId = e.id;
+                break;
+            }
+        }
+
+        totalBytes = measure(tree, sourceId);
+        doneBytes = 0;
+        fileCount = 0;
+        if (totalBytes == 0)
+            return "That folder has no files to import.";
+
+        File dest = GameData.baseq2(this);
+        copyDir(tree, sourceId, dest);
+        return String.format(Locale.ROOT, "Imported %d files (%.0f MB).", fileCount, doneBytes / 1048576.0);
+    }
+
+    private long measure(Uri tree, String docId) {
+        long sum = 0;
+        for (Entry e : children(tree, docId)) {
+            if (skip(e.name, e.dir))
+                continue;
+            sum += e.dir ? measure(tree, e.id) : e.size;
+        }
+        return sum;
+    }
+
+    private void copyDir(Uri tree, String docId, File dest) throws IOException {
+        if (!dest.isDirectory() && !dest.mkdirs())
+            throw new IOException("Couldn't create " + dest);
+
+        for (Entry e : children(tree, docId)) {
+            if (skip(e.name, e.dir))
+                continue;
+            File out = new File(dest, e.name);
+            if (e.dir) {
+                copyDir(tree, e.id, out);
+                continue;
+            }
+            // resume-friendly: an identical-size file is assumed to be already imported
+            if (out.isFile() && out.length() == e.size) {
+                doneBytes += e.size;
+                fileCount++;
+                continue;
+            }
+            File tmp = new File(dest, e.name + ".part");
+            Uri src = DocumentsContract.buildDocumentUriUsingTree(tree, e.id);
+            try (InputStream in = getContentResolver().openInputStream(src);
+                 OutputStream os = new FileOutputStream(tmp)) {
+                if (in == null)
+                    throw new IOException("Couldn't open " + e.name);
+                final String name = e.name;
+                GameData.copy(in, os, new GameData.Progress() {
+                    @Override public void add(long bytes) {
+                        doneBytes += bytes;
+                        long now = System.currentTimeMillis();
+                        if (now - lastUpdate > 250) {
+                            lastUpdate = now;
+                            showProgress(name);
+                        }
+                    }
+                });
+            } catch (IOException ex) {
+                tmp.delete();
+                throw ex;
+            }
+            if (out.exists())
+                out.delete();
+            if (!tmp.renameTo(out))
+                throw new IOException("Couldn't write " + out);
+            fileCount++;
+        }
+    }
+
+    private void showProgress(String name) {
+        final String text = String.format(Locale.ROOT, "Importing %s…\n%.0f / %.0f MB",
+            name, doneBytes / 1048576.0, totalBytes / 1048576.0);
+        ui.post(new Runnable() {
+            @Override public void run() {
+                status.setText(text);
+                status.setTextColor(Color.WHITE);
+            }
+        });
+    }
+}

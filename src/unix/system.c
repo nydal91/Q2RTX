@@ -43,10 +43,22 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <SDL2/SDL_video.h>
 #include <SDL2/SDL_messagebox.h>
 #include <SDL2/SDL.h>
+#ifdef __ANDROID__
+#include <SDL2/SDL_system.h>
+#endif
 
 extern SDL_Window *get_sdl_window(void);
 
 #include <pthread.h>
+#endif
+
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
+#ifndef DTTOIF
+// not provided by bionic
+#define DTTOIF(dirtype) ((dirtype) << 12)
 #endif
 
 static char baseDirectory[PATH_MAX];
@@ -98,9 +110,37 @@ void Sys_Quit(void)
 
 #define SYS_SITE_CFG    "/etc/default/q2pro"
 
+#ifdef __ANDROID__
+// Defaults tuned for mobile GPUs. These run before default.cfg / config.cfg,
+// so anything the player changes in the menu (and is archived) still wins.
+static const char android_default_cfg[] =
+    "set vid_fullscreen 1\n"
+    "set ray_tracing_api query\n"          // mobile drivers expose VK_KHR_ray_query
+    "set drs_enable 1\n"                    // dynamic resolution scaling
+    "set drs_target 30\n"
+    "set drs_minscale 25\n"
+    "set drs_maxscale 75\n"
+    "set flt_fsr_enable 1\n"                // AMD FSR 1.0 upscale back to native
+    "set pt_num_bounce_rays 0.5\n"          // half-res diffuse bounce
+    "set pt_reflect_refract 1\n"
+    "set pt_caustics 0\n"
+    "set gr_enable 0\n"                     // god rays
+    "set physical_sky_draw_clouds 0\n"
+    "set cl_maxfps 60\n"
+    "set scr_scale 2\n"
+    "set con_scale 2\n"
+    "set ui_scale 2\n"
+    "set sys_parachute 0\n";                // let Android's debuggerd see crashes
+#endif
+
 void Sys_AddDefaultConfig(void)
 {
     FILE *fp;
+#ifdef __ANDROID__
+    Cbuf_AddText(&cmd_buffer, android_default_cfg);
+    Cbuf_Execute(&cmd_buffer);
+    return;
+#endif
     size_t len;
 
     fp = fopen(SYS_SITE_CFG, "r");
@@ -231,6 +271,20 @@ void Sys_Init(void)
     signal(SIGHUP, term_handler);
     signal(SIGUSR1, usr1_handler);
 
+#ifdef __ANDROID__
+    // Game data lives in the app-specific external files directory
+    // (/storage/emulated/0/Android/data/<package>/files). The Java launcher
+    // imports the player's baseq2 files there and extracts bundled shaders.
+    {
+        const char *ext = SDL_AndroidGetExternalStoragePath();
+        if (!ext)
+            ext = SDL_AndroidGetInternalStoragePath();
+        if (!ext)
+            Sys_Error("Couldn't determine Android storage path: %s", SDL_GetError());
+        Q_strlcpy(baseDirectory, ext, sizeof(baseDirectory));
+        (void)dir_hnd;
+    }
+#else
     // Check for a full-install before searching local dirs
     sprintf(baseDirectory, "%s", "/usr/share/quake2rtx");
     dir_hnd = opendir(baseDirectory);
@@ -239,6 +293,7 @@ void Sys_Init(void)
     } else {
         getcwd(baseDirectory, PATH_MAX);
     }
+#endif
 
     if (!baseDirectory[0]) {
         Sys_Error("Game basedir not found!\n");
@@ -247,6 +302,12 @@ void Sys_Init(void)
     // allows the game to run from outside the data tree
     sys_basedir = Cvar_Get("basedir", baseDirectory, CVAR_NOSET);
 
+#ifdef __ANDROID__
+    // Everything (configs, saves, screenshots) is written next to the data;
+    // the directory is private to the app and needs no storage permission.
+    (void)homedir; (void)xdg_data_home_dir; (void)check_snprintf;
+    Q_strlcpy(homegamedir, baseDirectory, sizeof(homegamedir));
+#else
     // homedir <path>
     // specifies per-user writable directory for demos, screenshots, etc
     homedir = getenv("HOME");
@@ -283,6 +344,7 @@ void Sys_Init(void)
             Sys_Error("%s:homegamedir: snprintf() failed with return "
                     "value %d.\n", __func__, check_snprintf);
     }
+#endif
     if (strlen(homegamedir) >= MAX_OSPATH - MAX_QPATH)
         Sys_Error("HOME path too long");
     sys_homedir = Cvar_Get("homedir", homegamedir, CVAR_NOSET);
@@ -317,6 +379,10 @@ void Sys_Error(const char *error, ...)
     va_start(argptr, error);
     Q_vsnprintf(text, sizeof(text), error, argptr);
     va_end(argptr);
+
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_FATAL, "Q2RTX", "FATAL: %s", text);
+#endif
 
 #if USE_CLIENT
     SDL_ShowSimpleMessageBox(

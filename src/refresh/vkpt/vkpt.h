@@ -204,6 +204,8 @@ typedef struct QVK_s {
 	bool                        use_ray_query;
 	bool                        enable_validation;
 	bool                        supports_fp16;
+	bool                        supports_minmax_filter;
+	bool                        supports_debug_utils;
 	bool                        supports_colorspace;
 	bool                        supports_debug_lines;
 	bool                        supports_smooth_lines;

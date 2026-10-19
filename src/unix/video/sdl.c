@@ -36,6 +36,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "../res/q2pro.xbm"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
+#if USE_TOUCH
+#include "../../android/touch.h"
+#endif
 
 #ifdef _WINDOWS
 #include <ShellScalingAPI.h>
@@ -320,6 +323,10 @@ static int get_dpi_scale(void)
 
 static void sdl_shutdown(void)
 {
+#if USE_TOUCH
+    TOUCH_Shutdown();
+#endif
+
 #if REF_GL
     if (sdl.context)
         SDL_GL_DeleteContext(sdl.context);
@@ -336,6 +343,15 @@ static bool init(graphics_api_t api)
 {
 	Uint32 flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
 	vrect_t rc;
+
+#ifdef __ANDROID__
+    // keep the Back button for the game (it acts as Escape) instead of closing the activity
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+    // touches still generate mouse events, which the menus use; real mice must not become touches
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
 
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) == -1) {
         Com_EPrintf("Couldn't initialize SDL video: %s\n", SDL_GetError());
@@ -362,6 +378,12 @@ static bool init(graphics_api_t api)
 	{
 		flags |= SDL_WINDOW_VULKAN;
 	}
+
+#ifdef __ANDROID__
+	// Android windows always cover the whole screen; size comes from the surface.
+	flags |= SDL_WINDOW_FULLSCREEN;
+	flags &= ~SDL_WINDOW_RESIZABLE;
+#endif
 
 	sdl.window = SDL_CreateWindow(PRODUCT, rc.x, rc.y, rc.width, rc.height, flags);
     if (!sdl.window) {
@@ -417,6 +439,10 @@ static bool init(graphics_api_t api)
     }
 
     Com_Printf("Using SDL video driver: %s\n", SDL_GetCurrentVideoDriver());
+
+#if USE_TOUCH
+    TOUCH_Init();
+#endif
 
     // activate disgusting wayland hacks
     sdl.wayland = !strcmp(SDL_GetCurrentVideoDriver(), "wayland");
@@ -507,6 +533,13 @@ static void key_event(SDL_KeyboardEvent *event)
 {
     unsigned key = event->keysym.scancode;
 
+#ifdef __ANDROID__
+    if (key == SDL_SCANCODE_AC_BACK) {
+        Key_Event(K_ESCAPE, event->state, event->timestamp);
+        return;
+    }
+#endif
+
     if (key < q_countof(scantokey))
         key = scantokey[key];
     else if (key >= SDL_SCANCODE_LCTRL && key < SDL_SCANCODE_LCTRL + q_countof(scantokey2))
@@ -573,7 +606,31 @@ static void pump_events(void)
 {
     SDL_Event    event;
 
+#if USE_TOUCH
+    // Touches only need to act as a mouse in menus. Turning the synthesis off
+    // in-game also keeps them out of SDL's relative mouse state (mouselook).
+    static int touch_mouse = -1;
+    int want_touch_mouse = !TOUCH_InGame();
+    if (want_touch_mouse != touch_mouse) {
+        SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, want_touch_mouse ? "1" : "0");
+        touch_mouse = want_touch_mouse;
+    }
+#endif
+
     while (SDL_PollEvent(&event)) {
+#if USE_TOUCH
+        if (TOUCH_HandleEvent(&event))
+            continue;
+
+        // While playing, touches drive the stick/look/buttons; drop the mouse
+        // events SDL synthesizes from them so a tap doesn't also fire/aim.
+        if (TOUCH_InGame()) {
+            if ((event.type == SDL_MOUSEMOTION && event.motion.which == SDL_TOUCH_MOUSEID) ||
+                ((event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP) && event.button.which == SDL_TOUCH_MOUSEID) ||
+                (event.type == SDL_MOUSEWHEEL && event.wheel.which == SDL_TOUCH_MOUSEID))
+                continue;
+        }
+#endif
         switch (event.type) {
         case SDL_QUIT:
             Com_Quit(NULL, ERR_DISCONNECT);

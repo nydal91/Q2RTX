@@ -14,6 +14,9 @@
 #elif  _WIN32
 #define CPUSTRING "x86"
 #define BUILDSTRING "Win32"
+#elif __aarch64__ && defined(__ANDROID__)
+#define CPUSTRING "aarch64"
+#define BUILDSTRING "Android"
 #elif __aarch64__
 #define CPUSTRING "aarch64"
 #define BUILDSTRING "Linux"

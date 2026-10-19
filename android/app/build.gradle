@@ -1,0 +1,99 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Q2RTX source tree root (this project lives in <root>/android)
+def q2rtxRoot = file("../..")
+def shadersPkz = file("src/main/assets/shaders.pkz")
+
+android {
+    namespace 'io.github.q2rtx'
+    compileSdk 34
+    ndkVersion "27.2.12479018"
+
+    defaultConfig {
+        applicationId "io.github.q2rtx"
+        // Vulkan 1.1 entry points are exported by libvulkan from API 28; every phone
+        // with hardware ray tracing ships Android 13+ anyway.
+        minSdk 29
+        targetSdk 34
+        versionCode 10801
+        versionName "1.8.1-android"
+
+        ndk {
+            // Ray-tracing capable mobile GPUs are all 64-bit ARM SoCs.
+            abiFilters 'arm64-v8a'
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_static",
+                          "-DANDROID_PLATFORM=android-29",
+                          "-DCONFIG_COMPILE_SHADERS=OFF",
+                          "-DCONFIG_USE_CURL=OFF",
+                          "-DCONFIG_GL_RENDERER=OFF",
+                          "-DCONFIG_VKPT_ENABLE_DEVICE_GROUPS=OFF"
+                // libmain.so (engine+client), libgame.so (baseq2 game module), libSDL2.so
+                targets "client", "game", "SDL2"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "${q2rtxRoot}/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+
+    sourceSets {
+        main {
+            // SDL's Java glue (SDLActivity & co.) is used straight from the submodule
+            java.srcDirs += ["${q2rtxRoot}/extern/SDL2/android-project/app/src/main/java"]
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+            jniDebuggable true
+        }
+        release {
+            minifyEnabled false
+            // Sign with the debug key so CI/Release builds install directly.
+            // Replace with your own signingConfig before distributing.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    packaging {
+        jniLibs {
+            // keep .so files uncompressed so dlopen("libgame.so") maps them from the APK
+            useLegacyPackaging false
+        }
+    }
+
+    androidResources {
+        // shaders.pkz is a zip already; don't compress it again
+        noCompress 'pkz'
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+tasks.register('checkShaders') {
+    doLast {
+        if (!shadersPkz.exists()) {
+            throw new GradleException(
+                "Missing ${shadersPkz}.\n" +
+                "Compile the SPIR-V shaders on the build host first:  ./build_shaders.sh  (see README.md)")
+        }
+    }
+}
+preBuild.dependsOn checkShaders

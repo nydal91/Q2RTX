@@ -230,6 +230,14 @@ SET(SRC_LINUX_CLIENT
 	unix/video/sdl.c
 )
 
+SET(SRC_ANDROID_CLIENT
+	android/touch.c
+)
+
+SET(HEADERS_ANDROID_CLIENT
+	android/touch.h
+)
+
 SET(SRC_WINDOWS
 	windows/ac.c
 	windows/debug.c
@@ -352,8 +360,9 @@ set(SRC_RT_SHADERS
 )
 
 # Only build shaders in 64-bit builds, because the client
-# is also only built for 64-bit systems.
-IF(IS_64_BIT)
+# is also only built for 64-bit systems. Cross builds (Android) compile the
+# shaders with a separate host build instead: cmake -DCONFIG_COMPILE_SHADERS=ON ... --target shaders
+IF(IS_64_BIT AND CONFIG_COMPILE_SHADERS)
     include(../cmake/compileShaders.cmake)
 
     foreach(s ${SRC_RT_SHADERS})
@@ -453,6 +462,22 @@ IF(WIN32)
         client/null.c
         windows/res/q2rtxded.rc
     )
+ELSEIF(ANDROID)
+    # On Android the client is libmain.so, loaded by SDLActivity which then calls SDL_main().
+    # There is no dedicated server.
+    ADD_LIBRARY(client SHARED
+        ${SRC_CLIENT} ${HEADERS_CLIENT}
+        ${SRC_COMMON} ${HEADERS_COMMON}
+        ${SRC_REFRESH}
+        ${SRC_SHARED}
+        ${SRC_LINUX} ${SRC_LINUX_CLIENT}
+        ${SRC_SERVER} ${HEADERS_SERVER}
+        ${SRC_ANDROID_CLIENT} ${HEADERS_ANDROID_CLIENT}
+    )
+    TARGET_COMPILE_DEFINITIONS(client PRIVATE USE_TOUCH=1)
+    TARGET_LINK_LIBRARIES(client log android dl)
+    # libmain.so must not depend on anything the APK doesn't ship
+    TARGET_LINK_OPTIONS(client PRIVATE "-Wl,--no-undefined")
 ELSE()
     IF(IS_64_BIT)
         ADD_EXECUTABLE(client
@@ -474,8 +499,10 @@ ELSE()
     )
 ENDIF()
 
-TARGET_COMPILE_DEFINITIONS(server PRIVATE USE_SERVER=1 "${COMMON_COMPILE_DEFS}")
-target_compile_options(server PRIVATE "${WARN_MISSING_PROTOTYPES}")
+IF(TARGET server)
+    TARGET_COMPILE_DEFINITIONS(server PRIVATE USE_SERVER=1 "${COMMON_COMPILE_DEFS}")
+    target_compile_options(server PRIVATE "${WARN_MISSING_PROTOTYPES}")
+ENDIF()
 
 IF (TARGET client)
     TARGET_COMPILE_DEFINITIONS(client PRIVATE USE_CLIENT=1 USE_FIXED_LIBAL=1 USE_SDL=1 "${COMMON_COMPILE_DEFS}")
@@ -486,7 +513,9 @@ IF (TARGET client)
         TARGET_COMPILE_DEFINITIONS(client PRIVATE USE_CURL=1)
     ENDIF()
 
-    add_dependencies(client shaders)
+    IF(TARGET shaders)
+        add_dependencies(client shaders)
+    ENDIF()
 
     IF (CONFIG_GL_RENDERER)
         TARGET_SOURCES(client PRIVATE ${SRC_GL} ${HEADERS_GL})
@@ -559,28 +588,42 @@ IF(TARGET client)
     TARGET_INCLUDE_DIRECTORIES(client PRIVATE ../inc)
 ENDIF()
 
-TARGET_INCLUDE_DIRECTORIES(server PRIVATE ../inc)
+IF(TARGET server)
+    TARGET_INCLUDE_DIRECTORIES(server PRIVATE ../inc)
+ENDIF()
 
 if(TARGET client)
-    if (USE_SYSTEM_SDL2)
+    if (ANDROID AND NOT USE_SYSTEM_SDL2)
+        TARGET_LINK_LIBRARIES(client SDL2_client)
+    elseif (USE_SYSTEM_SDL2)
         TARGET_LINK_LIBRARIES(client SDL2)
     else()
         TARGET_LINK_LIBRARIES(client SDL2main SDL2-static)
     endif()
 endif()
 
-TARGET_LINK_LIBRARIES(server z)
+IF(TARGET server)
+    TARGET_LINK_LIBRARIES(server z)
+ENDIF()
 TARGET_LINK_LIBRARIES(game z)
 if(TARGET client)
     TARGET_LINK_LIBRARIES(client z)
 endif()
 
 IF(UNIX)
-    TARGET_LINK_LIBRARIES(server dl rt m pthread)
+    IF(TARGET server)
+        TARGET_LINK_LIBRARIES(server dl rt m pthread)
+    ENDIF()
     IF(TARGET client)
         TARGET_LINK_LIBRARIES(client m)
     ENDIF()
 ENDIF()
+
+IF(ANDROID)
+    # libmain.so / libgame.so, packaged into the APK by Gradle
+    SET_TARGET_PROPERTIES(client PROPERTIES OUTPUT_NAME "main")
+    SET_TARGET_PROPERTIES(game PROPERTIES OUTPUT_NAME "game")
+ELSE()
 
 IF(TARGET client)
     SET_TARGET_PROPERTIES(client
@@ -595,6 +638,7 @@ IF(TARGET client)
     )
 ENDIF()
 
+IF(TARGET server)
 SET_TARGET_PROPERTIES(server
     PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}"
@@ -610,6 +654,7 @@ IF (IS_64_BIT)
 ELSE()
     SET_TARGET_PROPERTIES(server PROPERTIES OUTPUT_NAME "q2rtxded-x86")
 ENDIF()
+ENDIF() # TARGET server
 
 # specify both LIBRARY and RUNTIME because one works only on Windows and another works only on Linux
 
@@ -662,6 +707,8 @@ ELSE()
         RUNTIME_OUTPUT_NAME "gamex86"
     )
 ENDIF()
+
+ENDIF() # NOT ANDROID
 
 IF(CONFIG_LINUX_PACKAGING_SUPPORT)
     # Put the real game binary in /usr/share so we can have a wrapper in /usr/bin
