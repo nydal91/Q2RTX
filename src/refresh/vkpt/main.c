@@ -3473,12 +3473,40 @@ static void temporal_cvar_changed(cvar_t *self)
 	temporal_frame_valid = false;
 }
 
+/* Android destroys the window surface whenever the app goes to the background
+ * (VK_ERROR_SURFACE_LOST_KHR on the next acquire/present). Make a new VkSurfaceKHR
+ * for the window SDL has now; the swapchain is rebuilt on top of it. */
+static bool
+recreate_surface(void)
+{
+	if (qvk.surface != VK_NULL_HANDLE) {
+		vkDestroySurfaceKHR(qvk.instance, qvk.surface, NULL);
+		qvk.surface = VK_NULL_HANDLE;
+	}
+
+	if (!SDL_Vulkan_CreateSurface(qvk.window, qvk.instance, &qvk.surface)) {
+		/* typically still in the background; try again next frame */
+		qvk.surface = VK_NULL_HANDLE;
+		return false;
+	}
+
+	VkBool32 present_support = VK_FALSE;
+	vkGetPhysicalDeviceSurfaceSupportKHR(qvk.physical_device, qvk.queue_idx_graphics, qvk.surface, &present_support);
+	Com_Printf("Recreated the window surface%s\n", present_support ? "" : " (no present support!)");
+	return true;
+}
+
 static void
 recreate_swapchain(void)
 {
 	vkDeviceWaitIdle(qvk.device);
 	vkpt_destroy_all(VKPT_INIT_SWAPCHAIN_RECREATE);
 	destroy_swapchain();
+	if (qvk.surface == VK_NULL_HANDLE && !recreate_surface()) {
+		/* no window to render to: stay without a swapchain (treated like minimized) */
+		vkpt_initialize_all(VKPT_INIT_SWAPCHAIN_RECREATE);
+		return;
+	}
 	SDL_Vulkan_GetDrawableSize(qvk.window, &qvk.draw_width, &qvk.draw_height);
 	r_config.width = qvk.draw_width;
 	r_config.height = qvk.draw_height;
@@ -3622,7 +3650,11 @@ R_BeginFrame_RTX(void)
 	}
 
 	bool mode_changed = (qvk.draw_width != r_config.width) || (qvk.draw_height != r_config.height);
-	if (!qvk.swap_chain || mode_changed)
+	if ((!qvk.swap_chain || mode_changed) && qvk.surface == VK_NULL_HANDLE)
+	{
+		recreate_swapchain(); /* also tries to get a new surface */
+	}
+	else if (!qvk.swap_chain || mode_changed)
 	{
 		VkSurfaceCapabilitiesKHR surf_capabilities;
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(qvk.physical_device, qvk.surface, &surf_capabilities);
@@ -3672,6 +3704,14 @@ retry:;
 		qvk.semaphores[qvk.current_frame_index][0].image_available, VK_NULL_HANDLE, &qvk.current_swap_chain_image_index);
 #endif
 	if(res_swapchain == VK_ERROR_OUT_OF_DATE_KHR || (res_swapchain == VK_SUBOPTIMAL_KHR && SUBOPTIMAL_NEEDS_RECREATE)) {
+		recreate_swapchain();
+		goto retry;
+	}
+	else if(res_swapchain == VK_ERROR_SURFACE_LOST_KHR) {
+		vkDeviceWaitIdle(qvk.device);
+		destroy_swapchain();
+		vkDestroySurfaceKHR(qvk.instance, qvk.surface, NULL);
+		qvk.surface = VK_NULL_HANDLE;
 		recreate_swapchain();
 		goto retry;
 	}
@@ -3824,6 +3864,13 @@ R_EndFrame_RTX(void)
 
 	VkResult res_present = vkQueuePresentKHR(qvk.queue_graphics, &present_info);
 	if(res_present == VK_ERROR_OUT_OF_DATE_KHR || (res_present == VK_SUBOPTIMAL_KHR && SUBOPTIMAL_NEEDS_RECREATE)) {
+		recreate_swapchain();
+	}
+	else if(res_present == VK_ERROR_SURFACE_LOST_KHR) {
+		vkDeviceWaitIdle(qvk.device);
+		destroy_swapchain();
+		vkDestroySurfaceKHR(qvk.instance, qvk.surface, NULL);
+		qvk.surface = VK_NULL_HANDLE;
 		recreate_swapchain();
 	}
 	qvk.frame_counter++;
