@@ -713,11 +713,14 @@ create_swapchain(void)
 	if(surf_capabilities.currentExtent.width != ~0u) {
 		qvk.extent_unscaled = surf_capabilities.currentExtent;
 #ifdef __ANDROID__
-		// Android reports the surface in the display's native (usually portrait)
-		// orientation plus a rotation. We render unrotated and let the compositor
-		// rotate, so the extent has to be swapped to match the landscape window.
-		if (surf_capabilities.currentTransform & (VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR | VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR |
-			VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR | VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR)) {
+		// We render unrotated and let the compositor rotate (identity pre-transform).
+		// Drivers differ in whether currentExtent is reported in the display's native
+		// orientation or already in the window's, regardless of currentTransform
+		// (Adreno 830: 2800x1280 with ROTATE_90). So go by the window: the game always
+		// runs in landscape, and the swapchain must be landscape too.
+		bool window_landscape = qvk.draw_width >= qvk.draw_height;
+		bool extent_landscape = qvk.extent_unscaled.width >= qvk.extent_unscaled.height;
+		if (window_landscape != extent_landscape) {
 			uint32_t w = qvk.extent_unscaled.width;
 			qvk.extent_unscaled.width = qvk.extent_unscaled.height;
 			qvk.extent_unscaled.height = w;
