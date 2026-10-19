@@ -69,6 +69,7 @@ static const tbutton_t tbuttons[] = {
     { "USE",  0.745f, 0.38f, 0.10f,  ACT_COMMAND, "invuse",   false },
     { "INV",  0.640f, 0.38f, 0.10f,  ACT_COMMAND, "inven",    false },
     { "MENU", 0.045f, 0.08f, 0.10f,  ACT_ESCAPE,  NULL,       false },
+    { "CON",  0.110f, 0.08f, 0.10f,  ACT_COMMAND, "toggleconsole", false },
 };
 
 #define NUM_TBUTTONS    q_countof(tbuttons)
@@ -241,8 +242,23 @@ static void release_all(void)
     Cbuf_AddText(&cmd_buffer, "-attack\n-moveup\n-movedown\n");
 }
 
+// Show the on-screen keyboard while the console is open, so commands can be typed.
+// SDL turns the typed text into key events, which the console already handles.
+static void update_text_input(void)
+{
+    bool want = (cls.key_dest & KEY_CONSOLE) != 0;
+    if (want != (bool)SDL_IsTextInputActive()) {
+        if (want)
+            SDL_StartTextInput();
+        else
+            SDL_StopTextInput();
+    }
+}
+
 static void check_game_state(void)
 {
+    update_text_input();
+
     bool in_game = TOUCH_InGame();
     if (touch.was_in_game && !in_game)
         release_all();

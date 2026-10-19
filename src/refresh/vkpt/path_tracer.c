@@ -1219,7 +1219,7 @@ vkpt_pt_destroy()
 /* Alternative SPIR-V builds of the ray query shaders (see cmake/compileShaders.cmake).
  * Some mobile drivers (Adreno) fail to compile the large unoptimized glslang output
  * with VK_ERROR_UNKNOWN; the same code after spirv-opt usually goes through. */
-static const char *const query_shader_variants[] = { "opt", "size", "legal" };
+static const char *const query_shader_variants[] = { "safe", "opt", "size", "legal" };
 
 static const char *query_shader_base_name(pipeline_index_t index)
 {

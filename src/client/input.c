@@ -20,6 +20,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "client.h"
 #if USE_TOUCH
 #include "../android/touch.h"
+
+// latest analog forward/side movement, used for prediction and the outgoing command
+static float touch_move[2];
 #endif
 
 static cvar_t    *cl_nodelta;
@@ -623,8 +626,10 @@ void CL_UpdateCmd(int msec)
         TOUCH_GetAnalog(msec, &fwd, &side, &yaw, &pitch);
         // full deflection = running speed, matching cl_run behaviour of the keys
         float run = (cl_run->integer ^ (in_speed.state & 1)) ? 2.0f : 1.0f;
-        cl.localmove[0] += fwd * cl_forwardspeed->value * run;
-        cl.localmove[1] += side * cl_sidespeed->value * run;
+        touch_move[0] = fwd * cl_forwardspeed->value * run;
+        touch_move[1] = side * cl_sidespeed->value * run;
+        cl.localmove[0] += touch_move[0];
+        cl.localmove[1] += touch_move[1];
         cl.viewangles[YAW] += yaw;
         cl.viewangles[PITCH] += pitch;
     }
@@ -789,6 +794,12 @@ void CL_FinalizeCmd(void)
     // add mouse forward/side movement
     move[0] += cl.mousemove[0];
     move[1] += cl.mousemove[1];
+
+#if USE_TOUCH
+    // analog movement from the touch stick / controller (sampled in CL_UpdateCmd)
+    move[0] += touch_move[0];
+    move[1] += touch_move[1];
+#endif
 
     // clamp to server defined max speed
     CL_ClampSpeed(move);

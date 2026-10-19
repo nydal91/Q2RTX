@@ -365,7 +365,10 @@ void
 vkpt_reload_shader(void)
 {
 	char buf[1024];
-#ifdef _WIN32
+#if defined(__ANDROID__)
+	FILE *f = NULL; /* shaders are prebuilt; just recreate the pipelines */
+	(void)buf;
+#elif defined(_WIN32)
 	FILE *f = _popen("compile_shaders.bat", "r");
 #else
 	FILE *f = popen("make -j compile_shaders", "r");

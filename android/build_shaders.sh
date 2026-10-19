@@ -49,6 +49,8 @@ for base in primary_rays reflect_refract direct_lighting indirect_lighting; do
     "$spirv_opt" --target-env=vulkan1.2 --merge-return --inline-entry-points-exhaustive \
                  --eliminate-dead-functions --eliminate-dead-code-aggressive \
                  "$in" -o "$out_dir/$base.rgen.query.legal.spv"
+    # -O with spirv-opt's undefined values replaced by zeros (the Android default)
+    python3 "$here/spirv_null_undef.py" "$out_dir/$base.rgen.query.opt.spv" "$out_dir/$base.rgen.query.safe.spv"
 done
 
 # --- driver probes ---

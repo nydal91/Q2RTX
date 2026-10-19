@@ -116,7 +116,7 @@ void Sys_Quit(void)
 static const char android_default_cfg[] =
     "set vid_fullscreen 1\n"
     "set ray_tracing_api query\n"          // mobile drivers expose VK_KHR_ray_query
-    "set pt_query_shader opt\n"            // spirv-opt'ed shaders: Adreno rejects the unoptimized ones
+    "set pt_query_shader safe\n"           // spirv-opt'ed shaders (Adreno rejects the unoptimized ones), undefs zeroed
     "set drs_enable 1\n"                    // dynamic resolution scaling
     "set drs_target 30\n"
     "set drs_minscale 25\n"
