@@ -125,7 +125,10 @@ Settings, saves and screenshots live next to the data in `Android/data/io.github
   extended storage formats, min/max sampler reduction…) are masked by what the GPU supports instead
   of failing device creation; swapchain picks a supported composite-alpha mode, falls back to FIFO,
   renders unrotated with an identity pre-transform and ignores the resulting `VK_SUBOPTIMAL_KHR`;
-  fixed a build break when device-group support is disabled.
+  fixed a build break when device-group support is disabled. If the driver can't compile a ray
+  query shader, the engine falls back to `spirv-opt`-processed builds of it (`.opt`, `.size`,
+  `.legal`, made by `build_shaders.sh`) and, if all fail, compiles small probe shaders and reports
+  which ray query feature the driver rejects.
 - **Input** (`src/android/touch.c`, `unix/video/sdl.c`, `client/input.c`, `client/screen.c`): touch
   overlay, analog move/look and SDL GameController support; touches act as a mouse only in menus.
 - **App** (`android/`): launcher with folder import (Storage Access Framework), SDL activity,

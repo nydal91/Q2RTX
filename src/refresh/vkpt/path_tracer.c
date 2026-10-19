@@ -1216,6 +1216,131 @@ vkpt_pt_destroy()
 	return VK_SUCCESS;
 }
 
+/* Alternative SPIR-V builds of the ray query shaders (see cmake/compileShaders.cmake).
+ * Some mobile drivers (Adreno) fail to compile the large unoptimized glslang output
+ * with VK_ERROR_UNKNOWN; the same code after spirv-opt usually goes through. */
+static const char *const query_shader_variants[] = { "opt", "size", "legal" };
+
+static const char *query_shader_base_name(pipeline_index_t index)
+{
+	switch (index)
+	{
+	case PIPELINE_PRIMARY_RAYS:              return "primary_rays";
+	case PIPELINE_REFLECT_REFRACT_1:
+	case PIPELINE_REFLECT_REFRACT_2:         return "reflect_refract";
+	case PIPELINE_DIRECT_LIGHTING:
+	case PIPELINE_DIRECT_LIGHTING_CAUSTICS:  return "direct_lighting";
+	case PIPELINE_INDIRECT_LIGHTING_FIRST:
+	case PIPELINE_INDIRECT_LIGHTING_SECOND:  return "indirect_lighting";
+	default:                                 return "unknown";
+	}
+}
+
+static VkShaderModule load_shader_variant(const char *path)
+{
+	void *data = NULL;
+	int size = FS_LoadFile(path, &data);
+	if (!data || size <= 0)
+		return VK_NULL_HANDLE;
+
+	VkShaderModuleCreateInfo create_info = {
+		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+		.codeSize = size,
+		.pCode = (uint32_t *)data,
+	};
+	VkShaderModule module = VK_NULL_HANDLE;
+	VkResult res = vkCreateShaderModule(qvk.device, &create_info, NULL, &module);
+	FS_FreeFile(data);
+	if (res != VK_SUCCESS) {
+		Com_WPrintf("vkCreateShaderModule failed for %s: %s\n", path, qvk_result_to_string(res));
+		return VK_NULL_HANDLE;
+	}
+	return module;
+}
+
+/* When no build of a ray query shader compiles, try small shaders that each use one
+ * ray query feature, so the log shows what the driver chokes on. */
+static const char *const query_probes[] = {
+	"empty", "textures", "rq_basic", "rq_array", "rq_confirm", "rq_committed", "rq_candidate",
+	"rq_sbt", "rq_procedural", "trace_shadow", "trace_geometry", "trace_effects"
+};
+
+static void run_query_probes(char *summary, size_t size)
+{
+	size_t len = Q_strlcpy(summary, "Probes:", size);
+	for (int i = 0; i < LENGTH(query_probes) && len < size; i++)
+	{
+		char path[MAX_QPATH];
+		Q_snprintf(path, sizeof(path), "shader_vkpt/probe/%s.spv", query_probes[i]);
+		VkShaderModule module = load_shader_variant(path);
+		const char *outcome;
+		if (!module) {
+			outcome = "missing";
+		} else {
+			VkComputePipelineCreateInfo info = {
+				.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+				.layout = rt_pipeline_layout,
+				.stage = {
+					.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+					.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+					.pName = "main",
+					.module = module,
+				}
+			};
+			VkPipeline pipeline = VK_NULL_HANDLE;
+			VkResult res = vkCreateComputePipelines(qvk.device, 0, 1, &info, NULL, &pipeline);
+			if (pipeline)
+				vkDestroyPipeline(qvk.device, pipeline, NULL);
+			vkDestroyShaderModule(qvk.device, module, NULL);
+			outcome = res == VK_SUCCESS ? "ok" : qvk_result_to_string(res);
+		}
+		Com_Printf("Probe %s: %s\n", query_probes[i], outcome);
+		len += Q_scnprintf(summary + len, size - len, " %s=%s", query_probes[i], outcome);
+	}
+}
+
+/* Creates a ray query compute pipeline, falling back to the alternative SPIR-V
+ * variants when the driver rejects the default one. */
+static VkResult create_query_pipeline(pipeline_index_t index, VkComputePipelineCreateInfo *info)
+{
+	const char *base = query_shader_base_name(index);
+	unsigned start = Sys_Milliseconds();
+	VkResult res = vkCreateComputePipelines(qvk.device, 0, 1, info, NULL, &rt_pipelines[index]);
+	Com_Printf("Ray query pipeline #%d (%s): %s, %u ms\n", index, base, qvk_result_to_string(res), Sys_Milliseconds() - start);
+	if (res == VK_SUCCESS)
+		return res;
+
+	VkResult first_error = res;
+	for (int v = 0; v < LENGTH(query_shader_variants); v++)
+	{
+		char path[MAX_QPATH];
+		Q_snprintf(path, sizeof(path), "shader_vkpt/%s.rgen.query.%s.spv", base, query_shader_variants[v]);
+		VkShaderModule module = load_shader_variant(path);
+		if (!module) {
+			Com_Printf("  variant %s: not available\n", query_shader_variants[v]);
+			continue;
+		}
+
+		VkComputePipelineCreateInfo alt = *info;
+		alt.stage.module = module;
+		start = Sys_Milliseconds();
+		res = vkCreateComputePipelines(qvk.device, 0, 1, &alt, NULL, &rt_pipelines[index]);
+		vkDestroyShaderModule(qvk.device, module, NULL); /* not needed once the pipeline exists */
+		Com_Printf("  variant %s: %s, %u ms\n", query_shader_variants[v], qvk_result_to_string(res), Sys_Milliseconds() - start);
+		if (res == VK_SUCCESS)
+			return res;
+	}
+
+	rt_pipelines[index] = VK_NULL_HANDLE;
+	char probes[512];
+	run_query_probes(probes, sizeof(probes));
+	Com_SetLastError(va("The GPU driver could not compile the ray query shader '%s' (pipeline #%d): %s, "
+		"and none of the %d alternative builds worked either.\n%s",
+		base, index, qvk_result_to_string(first_error), (int)LENGTH(query_shader_variants), probes));
+	Com_EPrintf("%s\n", Com_GetLastError());
+	return first_error;
+}
+
 VkResult
 vkpt_pt_create_pipelines()
 {
@@ -1323,15 +1448,9 @@ vkpt_pt_create_pipelines()
 				}
 			};
 
-			VkResult res = vkCreateComputePipelines(qvk.device, 0, 1, &compute_pipeline_info, NULL, &rt_pipelines[index]);
-
+			VkResult res = create_query_pipeline(index, &compute_pipeline_info);
 			if (res != VK_SUCCESS)
-			{
-				Com_SetLastError(va("vkCreateComputePipelines failed for ray query pipeline #%d (%s): %s",
-					index, index == PIPELINE_PRIMARY_RAYS ? "primary rays" : "lighting", qvk_result_to_string(res)));
-				Com_EPrintf("%s\n", Com_GetLastError());
 				return res;
-			}
 		}
 		else
 		{

@@ -517,6 +517,8 @@ const char *qvk_result_to_string(VkResult result)
 		return "VK_ERROR_SURFACE_LOST_KHR";
 	case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR:
 		return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
+	case VK_ERROR_UNKNOWN:
+		return "VK_ERROR_UNKNOWN";
 	case VK_SUBOPTIMAL_KHR:
 		return "VK_SUBOPTIMAL_KHR";
 	case VK_ERROR_OUT_OF_DATE_KHR:

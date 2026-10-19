@@ -1,0 +1,21 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+// Driver compatibility probe: compiled as a compute shader with -DKHR_RAY_QUERY and
+// created against the path tracer pipeline layout when the real shaders fail.
+#include "../path_tracer_rgen.h"
+
+Ray probe_ray()
+{
+	Ray r;
+	r.origin = vec3(rt_LaunchID.xy, 0);
+	r.direction = vec3(0, 0, 1);
+	r.t_min = 0;
+	r.t_max = 1000;
+	return r;
+}
+
+void main()
+{
+	vec4 result = vec4(global_ubo.current_frame_idx);
+	imageStore(IMG_PT_MOTION, ivec2(rt_LaunchID.xy), result);
+}
