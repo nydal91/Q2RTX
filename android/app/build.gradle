@@ -27,6 +27,8 @@ android {
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_STL=c++_static",
+                          // 16 KB page alignment, required by newer Android devices
+                          "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
                           "-DANDROID_PLATFORM=android-29",
                           "-DCONFIG_COMPILE_SHADERS=OFF",
                           "-DCONFIG_USE_CURL=OFF",
@@ -84,6 +86,8 @@ android {
 
     lint {
         abortOnError false
+        // release lint only downloads extra tooling and never blocks the build
+        checkReleaseBuilds false
     }
 }
 
