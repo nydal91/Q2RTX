@@ -240,6 +240,7 @@ typedef struct QVK_s {
 	// when set, we'll do a WFI before acquire for this many frames
 	uint32_t                    wait_for_idle_frames;
 	float                       timestampPeriod;
+	char                        gpu_description[512]; /* name, driver and API version, for error reports */
 	bool                        frame_menu_mode;
 
 	VkShaderModule              shader_modules[NUM_QVK_SHADER_MODULES];

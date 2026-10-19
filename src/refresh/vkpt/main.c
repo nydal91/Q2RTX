@@ -315,7 +315,8 @@ vkpt_initialize_all(VkptInitFlags_t init_flags)
 		assert(init->is_initialized);
 
 		if (!init->is_initialized)
-		  Com_Error(ERR_FATAL, "Couldn't initialize %s.\n", init->name);
+		  Com_Error(ERR_FATAL, "Couldn't initialize %s.\n%s\nGPU: %s\nFull log: baseq2/logs/console.log",
+			init->name, Com_GetLastError(), qvk.gpu_description);
 	}
 
 	if ((VKPT_INIT_DEFAULT & init_flags) == init_flags)
@@ -1222,6 +1223,20 @@ init_vulkan(void)
 		qvk.timestampPeriod = dev_properties2.properties.limits.timestampPeriod;
 
 		Com_Printf("Picked physical device %d: %s\n", picked_device, dev_properties2.properties.deviceName);
+
+		{
+			const VkPhysicalDeviceProperties *p = &dev_properties2.properties;
+			const VkPhysicalDeviceLimits *l = &p->limits;
+			Q_snprintf(qvk.gpu_description, sizeof(qvk.gpu_description), "%s, %s %s, Vulkan %u.%u.%u",
+				p->deviceName, driver_properties.driverName, driver_properties.driverInfo,
+				VK_API_VERSION_MAJOR(p->apiVersion), VK_API_VERSION_MINOR(p->apiVersion), VK_API_VERSION_PATCH(p->apiVersion));
+			Com_Printf("GPU: %s\n", qvk.gpu_description);
+			Com_Printf("Limits: perStage samplers=%u uniformBuffers=%u storageBuffers=%u sampledImages=%u storageImages=%u resources=%u\n",
+				l->maxPerStageDescriptorSamplers, l->maxPerStageDescriptorUniformBuffers, l->maxPerStageDescriptorStorageBuffers,
+				l->maxPerStageDescriptorSampledImages, l->maxPerStageDescriptorStorageImages, l->maxPerStageResources);
+			Com_Printf("Limits: boundSets=%u pushConstants=%u computeSharedMemory=%u computeInvocations=%u\n",
+				l->maxBoundDescriptorSets, l->maxPushConstantsSize, l->maxComputeSharedMemorySize, l->maxComputeWorkGroupInvocations);
+		}
 		Com_Printf("Using %s\n", (qvk.use_ray_query ? VK_KHR_RAY_QUERY_EXTENSION_NAME : VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME));
 
 #ifdef _WIN32
@@ -1634,9 +1649,13 @@ create_shader_module_from_file(const char *name, const char *enum_name, bool is_
 		.pCode = (uint32_t *) data,
 	};
 
-	_VK(vkCreateShaderModule(qvk.device, &create_info, NULL, &module));
-
+	VkResult res = vkCreateShaderModule(qvk.device, &create_info, NULL, &module);
 	Z_Free(data);
+	if (res != VK_SUCCESS) {
+		Com_SetLastError(va("vkCreateShaderModule failed for %s: %s", path, qvk_result_to_string(res)));
+		Com_EPrintf("%s\n", Com_GetLastError());
+		return VK_NULL_HANDLE;
+	}
 
 	return module;
 }

@@ -241,7 +241,13 @@ vkpt_pt_init()
 		.pPushConstantRanges = &push_constant_range,
 	};
 
-	_VK(vkCreatePipelineLayout(qvk.device, &pipeline_layout_create_info, NULL, &rt_pipeline_layout));
+	VkResult layout_result = vkCreatePipelineLayout(qvk.device, &pipeline_layout_create_info, NULL, &rt_pipeline_layout);
+	if (layout_result != VK_SUCCESS)
+	{
+		Com_SetLastError(va("vkCreatePipelineLayout (path tracer) failed: %s", qvk_result_to_string(layout_result)));
+		Com_EPrintf("%s\n", Com_GetLastError());
+		return layout_result;
+	}
 	ATTACH_LABEL_VARIABLE(rt_pipeline_layout, PIPELINE_LAYOUT);
 
 	VkDescriptorPoolSize pool_sizes[] = {
@@ -1321,7 +1327,9 @@ vkpt_pt_create_pipelines()
 
 			if (res != VK_SUCCESS)
 			{
-				Com_EPrintf("Failed to create ray tracing compute pipeline #%d, vkCreateComputePipelines error code is %s\n", index, qvk_result_to_string(res));
+				Com_SetLastError(va("vkCreateComputePipelines failed for ray query pipeline #%d (%s): %s",
+					index, index == PIPELINE_PRIMARY_RAYS ? "primary rays" : "lighting", qvk_result_to_string(res)));
+				Com_EPrintf("%s\n", Com_GetLastError());
 				return res;
 			}
 		}

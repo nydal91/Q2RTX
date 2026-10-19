@@ -1,6 +1,11 @@
 package io.github.q2rtx;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -19,11 +24,14 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -116,6 +124,16 @@ public class LauncherActivity extends Activity {
         lp.leftMargin = dp(16);
         row.addView(playButton, lp);
 
+        Button logButton = new Button(this);
+        logButton.setText("Show log");
+        logButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showLog(); }
+        });
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp2.leftMargin = dp(16);
+        row.addView(logButton, lp2);
+
         col.addView(row);
 
         ScrollView scroll = new ScrollView(this);
@@ -143,6 +161,77 @@ public class LauncherActivity extends Activity {
 
     private void play() {
         startActivity(new Intent(this, Q2RTXActivity.class));
+    }
+
+    // ----------------------------------------------------------------- log
+
+    /**
+     * The engine writes its console to baseq2/logs/console.log. Android/data is hard to
+     * reach on modern Android, so show the interesting part here and offer to copy it.
+     */
+    private void showLog() {
+        File log = new File(GameData.baseq2(this), "logs/console.log");
+        String text;
+        if (!log.isFile()) {
+            text = "No log yet. Start the game once, then come back here.\n(" + log.getAbsolutePath() + ")";
+        } else {
+            text = summarizeLog(log);
+        }
+
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextIsSelectable(true);
+        view.setTypeface(Typeface.MONOSPACE);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        view.setPadding(dp(16), dp(8), dp(16), dp(8));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(view);
+
+        final String copy = text;
+        new AlertDialog.Builder(this)
+            .setTitle("Game log")
+            .setView(scroll)
+            .setPositiveButton("Copy", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null)
+                        cm.setPrimaryClip(ClipData.newPlainText("Q2RTX log", copy));
+                }
+            })
+            .setNegativeButton("Close", null)
+            .show();
+    }
+
+    /** Device/driver lines and errors from the last run, plus its final lines. */
+    private static String summarizeLog(File log) {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader r = new BufferedReader(new FileReader(log))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                // the log is appended to on every run; keep only the latest one
+                if (line.contains("Engine version:"))
+                    lines.clear();
+                lines.add(line);
+            }
+        } catch (IOException e) {
+            return "Couldn't read " + log + ": " + e.getMessage();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        String[] keys = { "Engine version", "GPU:", "Limits:", "Optional features", "FP16", "Picked physical",
+            "Using VK_", "rror", "ailed", "ouldn't", "WARNING", "FATAL", "not support" };
+        for (String l : lines) {
+            for (String k : keys) {
+                if (l.contains(k)) {
+                    sb.append(l).append('\n');
+                    break;
+                }
+            }
+        }
+        sb.append("\n--- last lines ---\n");
+        for (int i = Math.max(0, lines.size() - 60); i < lines.size(); i++)
+            sb.append(lines.get(i)).append('\n');
+        return sb.toString();
     }
 
     // -------------------------------------------------------------- import
