@@ -750,6 +750,20 @@ create_swapchain(void)
 		}
 	}
 
+	Com_Printf("Swapchain: surface %ux%u (transform 0x%x), window %dx%d, rendering at %ux%u\n",
+		surf_capabilities.currentExtent.width, surf_capabilities.currentExtent.height,
+		(unsigned)surf_capabilities.currentTransform, qvk.draw_width, qvk.draw_height,
+		qvk.extent_unscaled.width, qvk.extent_unscaled.height);
+
+#ifdef __ANDROID__
+	// The surface can be smaller than the window SDL reports, e.g. when Samsung's game
+	// optimizer renders games at a reduced resolution and scales them up. The 3D view
+	// and the HUD are laid out in r_config units relative to the swapchain, so make
+	// them agree; otherwise the scene shows up cropped and stretched.
+	qvk.draw_width = r_config.width = (int)qvk.extent_unscaled.width;
+	qvk.draw_height = r_config.height = (int)qvk.extent_unscaled.height;
+#endif
+
 	uint32_t num_images = max(surf_capabilities.minImageCount, 2);
 	if(surf_capabilities.maxImageCount > 0)
 		num_images = min(num_images, surf_capabilities.maxImageCount);

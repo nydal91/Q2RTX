@@ -643,9 +643,16 @@ static void pump_events(void)
             key_event(&event.key);
             break;
         case SDL_MOUSEMOTION:
+#ifdef __ANDROID__
+            // the renderer may draw at a lower resolution than the window (see create_swapchain)
+            if (sdl.win_width && sdl.win_height)
+                UI_MouseEvent(event.motion.x * r_config.width / sdl.win_width,
+                              event.motion.y * r_config.height / sdl.win_height);
+#else
             if (sdl.win_width && sdl.win_height)
                 UI_MouseEvent(event.motion.x * sdl.width / sdl.win_width,
                               event.motion.y * sdl.height / sdl.win_height);
+#endif
             break;
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP:

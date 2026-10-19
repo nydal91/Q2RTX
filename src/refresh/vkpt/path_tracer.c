@@ -1301,42 +1301,67 @@ static void run_query_probes(char *summary, size_t size)
 
 /* Creates a ray query compute pipeline, falling back to the alternative SPIR-V
  * variants when the driver rejects the default one. */
-static VkResult create_query_pipeline(pipeline_index_t index, VkComputePipelineCreateInfo *info)
+static VkResult try_query_pipeline(pipeline_index_t index, const VkComputePipelineCreateInfo *info, const char *variant)
 {
 	const char *base = query_shader_base_name(index);
-	unsigned start = Sys_Milliseconds();
-	VkResult res = vkCreateComputePipelines(qvk.device, 0, 1, info, NULL, &rt_pipelines[index]);
-	Com_Printf("Ray query pipeline #%d (%s): %s, %u ms\n", index, base, qvk_result_to_string(res), Sys_Milliseconds() - start);
-	if (res == VK_SUCCESS)
-		return res;
+	VkComputePipelineCreateInfo attempt = *info;
+	VkShaderModule module = VK_NULL_HANDLE;
 
-	VkResult first_error = res;
-	for (int v = 0; v < LENGTH(query_shader_variants); v++)
-	{
+	if (variant[0]) {
 		char path[MAX_QPATH];
-		Q_snprintf(path, sizeof(path), "shader_vkpt/%s.rgen.query.%s.spv", base, query_shader_variants[v]);
-		VkShaderModule module = load_shader_variant(path);
+		Q_snprintf(path, sizeof(path), "shader_vkpt/%s.rgen.query.%s.spv", base, variant);
+		module = load_shader_variant(path);
 		if (!module) {
-			Com_Printf("  variant %s: not available\n", query_shader_variants[v]);
-			continue;
+			Com_Printf("Ray query pipeline #%d (%s, %s): not available\n", index, base, variant);
+			return VK_ERROR_INITIALIZATION_FAILED;
 		}
-
-		VkComputePipelineCreateInfo alt = *info;
-		alt.stage.module = module;
-		start = Sys_Milliseconds();
-		res = vkCreateComputePipelines(qvk.device, 0, 1, &alt, NULL, &rt_pipelines[index]);
-		vkDestroyShaderModule(qvk.device, module, NULL); /* not needed once the pipeline exists */
-		Com_Printf("  variant %s: %s, %u ms\n", query_shader_variants[v], qvk_result_to_string(res), Sys_Milliseconds() - start);
-		if (res == VK_SUCCESS)
-			return res;
+		attempt.stage.module = module;
 	}
 
-	rt_pipelines[index] = VK_NULL_HANDLE;
+	unsigned start = Sys_Milliseconds();
+	VkResult res = vkCreateComputePipelines(qvk.device, 0, 1, &attempt, NULL, &rt_pipelines[index]);
+	if (module)
+		vkDestroyShaderModule(qvk.device, module, NULL); /* not needed once the pipeline exists */
+	Com_Printf("Ray query pipeline #%d (%s, %s): %s, %u ms\n", index, base, variant[0] ? variant : "default",
+		qvk_result_to_string(res), Sys_Milliseconds() - start);
+	if (res != VK_SUCCESS)
+		rt_pipelines[index] = VK_NULL_HANDLE;
+	return res;
+}
+
+/* Creates a ray query compute pipeline. The build named by pt_query_shader is tried
+ * first (the Android port defaults it to "opt"), then the default build, then the
+ * remaining alternatives. */
+static VkResult create_query_pipeline(pipeline_index_t index, VkComputePipelineCreateInfo *info)
+{
+	cvar_t *preferred = Cvar_Get("pt_query_shader", "", 0);
+	VkResult first_error = VK_SUCCESS;
+
+	const char *attempts[1 + 1 + LENGTH(query_shader_variants)];
+	int num_attempts = 0;
+	attempts[num_attempts++] = preferred->string;
+	if (preferred->string[0])
+		attempts[num_attempts++] = "";
+	for (int v = 0; v < LENGTH(query_shader_variants); v++)
+		if (Q_stricmp(query_shader_variants[v], preferred->string))
+			attempts[num_attempts++] = query_shader_variants[v];
+
+	for (int i = 0; i < num_attempts; i++)
+	{
+		VkResult res = try_query_pipeline(index, info, attempts[i]);
+		if (res == VK_SUCCESS)
+			return res;
+		if (first_error == VK_SUCCESS && res != VK_ERROR_INITIALIZATION_FAILED)
+			first_error = res;
+	}
+	if (first_error == VK_SUCCESS)
+		first_error = VK_ERROR_INITIALIZATION_FAILED;
+
 	char probes[512];
 	run_query_probes(probes, sizeof(probes));
 	Com_SetLastError(va("The GPU driver could not compile the ray query shader '%s' (pipeline #%d): %s, "
-		"and none of the %d alternative builds worked either.\n%s",
-		base, index, qvk_result_to_string(first_error), (int)LENGTH(query_shader_variants), probes));
+		"and none of the alternative builds worked either.\n%s",
+		query_shader_base_name(index), index, qvk_result_to_string(first_error), probes));
 	Com_EPrintf("%s\n", Com_GetLastError());
 	return first_error;
 }
