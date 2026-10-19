@@ -1402,6 +1402,17 @@ init_vulkan(void)
 		}
 	}
 	qvk.supports_minmax_filter = supported_features_1_2.samplerFilterMinmax;
+	{
+		static const VkFormat formats[] = { VK_FORMAT_R32G32B32A32_SFLOAT, VK_FORMAT_R32_SFLOAT, VK_FORMAT_R16_UNORM, VK_FORMAT_D32_SFLOAT };
+		char line[256] = "Linear filtering:";
+		for (int i = 0; i < LENGTH(formats); i++) {
+			VkFormatProperties props;
+			vkGetPhysicalDeviceFormatProperties(qvk.physical_device, formats[i], &props);
+			Q_strlcat(line, va(" %s=%d", qvk_format_to_string(formats[i]),
+				(props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) ? 1 : 0), sizeof(line));
+		}
+		Com_Printf("%s\n", line);
+	}
 	Com_Printf("Optional features: robustBufferAccess=%d pipelineStatisticsQuery=%d shaderStorageImageExtendedFormats=%d samplerFilterMinmax=%d\n",
 		supported_features.robustBufferAccess, supported_features.pipelineStatisticsQuery,
 		supported_features.shaderStorageImageExtendedFormats, supported_features_1_2.samplerFilterMinmax);

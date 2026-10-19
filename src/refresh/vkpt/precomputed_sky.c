@@ -100,8 +100,79 @@ float terrain_shadowmap_viewproj[16] = { 0.f };
 
 // ----------------------------------------------------------------------------
 
+static bool format_is_filterable(VkFormat format)
+{
+	VkFormatProperties props;
+	vkGetPhysicalDeviceFormatProperties(qvk.physical_device, format, &props);
+	return (props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+}
+
+static uint16_t float_to_half(float value)
+{
+	union { float f; uint32_t u; } in = { value };
+	uint32_t sign = (in.u >> 16) & 0x8000;
+	int32_t exponent = (int32_t)((in.u >> 23) & 0xff) - 127 + 15;
+	uint32_t mantissa = in.u & 0x7fffff;
+
+	if (((in.u >> 23) & 0xff) == 0xff) /* inf / nan */
+		return sign | 0x7c00 | (mantissa ? 0x200 : 0);
+	if (exponent >= 31) /* overflow: clamp to the largest finite half */
+		return sign | 0x7bff;
+	if (exponent <= 0) { /* denormal or zero */
+		if (exponent < -10)
+			return sign;
+		mantissa |= 0x800000;
+		uint32_t shift = 14 - exponent;
+		uint32_t half = mantissa >> shift;
+		uint32_t rest = mantissa & ((1u << shift) - 1), halfway = 1u << (shift - 1);
+		if (rest > halfway || (rest == halfway && (half & 1))) /* round to nearest even */
+			half++;
+		return sign | half;
+	}
+	uint32_t half = (exponent << 10) | (mantissa >> 13);
+	uint32_t rest = mantissa & 0x1fff;
+	if (rest > 0x1000 || (rest == 0x1000 && (half & 1))) /* round to nearest even; a carry into the exponent is correct */
+		half++;
+	if (half >= 0x7c00) /* rounded up past the largest finite half */
+		half = 0x7bff;
+	return sign | half;
+}
+
+/* 32-bit float textures don't have to support linear filtering, and on mobile GPUs
+ * (Adreno, Mali) they don't: sampling them with a linear sampler gives black. Use
+ * 16-bit floats there, which every Vulkan device can filter. */
+static void *convert_to_filterable(void *pixels, size_t *size, VkFormat *format)
+{
+	VkFormat half_format;
+	if (*format == VK_FORMAT_R32G32B32A32_SFLOAT)
+		half_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+	else if (*format == VK_FORMAT_R32_SFLOAT)
+		half_format = VK_FORMAT_R16_SFLOAT;
+	else
+		return NULL;
+
+	if (format_is_filterable(*format))
+		return NULL;
+
+	size_t count = *size / sizeof(float);
+	uint16_t *half = Z_Malloc(count * sizeof(uint16_t));
+	const float *src = pixels;
+	for (size_t i = 0; i < count; i++)
+		half[i] = float_to_half(src[i]);
+
+	Com_DPrintf("Sky texture: %s can't be filtered, using %s\n",
+		qvk_format_to_string(*format), qvk_format_to_string(half_format));
+	*size = count * sizeof(uint16_t);
+	*format = half_format;
+	return half;
+}
+
 VkResult UploadImage(void* FirstPixel, size_t total_size, unsigned int Width, unsigned int Height, unsigned int Depth, unsigned int ArraySize, unsigned char Cube, VkFormat PixelFormat, uint32_t Binding, struct ImageGPUInfo* Info, const char* DebugName)
 {
+	void *converted = convert_to_filterable(FirstPixel, &total_size, &PixelFormat);
+	if (converted)
+		FirstPixel = converted;
+
 	BufferResource_t buf_img_upload;
 	buffer_create(&buf_img_upload, total_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -112,6 +183,8 @@ VkResult UploadImage(void* FirstPixel, size_t total_size, unsigned int Width, un
 
 	buffer_unmap(&buf_img_upload);
 	bn_tex = NULL;
+	if (converted)
+		Z_Free(converted);
 
 	enum VkImageType ImageType = VK_IMAGE_TYPE_2D;
 	if (Depth == 0)
@@ -865,6 +938,9 @@ void ReleaseShadowmap(struct Shadowmap* InOutShadowmap)
 void CreateShadowMap(struct Shadowmap* InOutShadowmap)
 {
 	InOutShadowmap->DepthFormat = VK_FORMAT_D32_SFLOAT;
+	/* the shadow map is sampled with a linear sampler; mobile GPUs may not filter D32 */
+	if (!format_is_filterable(VK_FORMAT_D32_SFLOAT) && format_is_filterable(VK_FORMAT_D16_UNORM))
+		InOutShadowmap->DepthFormat = VK_FORMAT_D16_UNORM;
 	InOutShadowmap->Width = ShadowmapSize;
 	InOutShadowmap->Height = ShadowmapSize;
 

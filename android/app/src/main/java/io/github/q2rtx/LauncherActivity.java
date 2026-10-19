@@ -314,7 +314,7 @@ public class LauncherActivity extends Activity {
 
         StringBuilder sb = new StringBuilder();
         String[] keys = { "Engine version", "GPU:", "Limits:", "Optional features", "FP16", "Picked physical",
-            "Using VK_", "rror", "ailed", "ouldn't", "WARNING", "FATAL", "not support" };
+            "Using VK_", "Vulkan:", "custom Vulkan", "Linear filtering", "Recreated", "rror", "ailed", "ouldn't", "WARNING", "FATAL", "not support" };
         for (String l : lines) {
             for (String k : keys) {
                 if (l.contains(k)) {
