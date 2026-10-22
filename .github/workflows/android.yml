@@ -9,11 +9,11 @@ jobs:
   apk:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -21,10 +21,13 @@ jobs:
       - name: Install host tools
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
-      - uses: android-actions/setup-android@v3
-
+      # GitHub's Ubuntu runners come with the Android SDK in $ANDROID_HOME
       - name: Install NDK and CMake
-        run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
       # SPIR-V shaders are built once on the host with glslang from extern/glslang
       - name: Compile shaders
