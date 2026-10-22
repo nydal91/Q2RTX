@@ -422,13 +422,23 @@ SH load_SH(sampler2D img_shY, sampler2D img_CoCg, ivec2 p)
     return result;
 }
 
+// Replace NaN / Inf with 0. Tested on the bits so drivers can't fold it away.
+// Some GPUs (Adreno 830) produce occasional non-finite values in the path tracer;
+// the denoiser's history and wide a-trous kernels would otherwise smear them into
+// growing black blocks. GLSL max()/min() with a NaN operand are undefined too.
+bool is_finite_bits(float x) { return (floatBitsToUint(x) & 0x7f800000u) != 0x7f800000u; }
+float sanitize(float v) { return is_finite_bits(v) ? v : 0.0; }
+vec2 sanitize(vec2 v) { return vec2(sanitize(v.x), sanitize(v.y)); }
+vec3 sanitize(vec3 v) { return vec3(sanitize(v.x), sanitize(v.y), sanitize(v.z)); }
+vec4 sanitize(vec4 v) { return vec4(sanitize(v.x), sanitize(v.y), sanitize(v.z), sanitize(v.w)); }
+
 // Use a macro to work around the glslangValidator errors about function argument type mismatch
-#define STORE_SH(img_shY, img_CoCg, p, sh) { imageStore(img_shY, p, sh.shY); imageStore(img_CoCg, p, vec4(sh.CoCg, 0, 0)); }
+#define STORE_SH(img_shY, img_CoCg, p, sh) { imageStore(img_shY, p, sanitize(sh.shY)); imageStore(img_CoCg, p, vec4(sanitize(sh.CoCg), 0, 0)); }
 
 void store_SH(image2D img_shY, image2D img_CoCg, ivec2 p, SH sh)
 {
-    imageStore(img_shY, p, sh.shY);
-    imageStore(img_CoCg, p, vec4(sh.CoCg, 0, 0));
+    imageStore(img_shY, p, sanitize(sh.shY));
+    imageStore(img_CoCg, p, vec4(sanitize(sh.CoCg), 0, 0));
 }
 
 uvec2 packHalf4x16(vec4 v)
@@ -443,7 +453,7 @@ vec4 unpackHalf4x16(uvec2 v)
 
 uint packRGBE(vec3 v)
 {
-    vec3 va = max(vec3(0), v);
+    vec3 va = max(vec3(0), sanitize(v));
     float max_abs = max(va.r, max(va.g, va.b));
     if(max_abs == 0)
         return 0;

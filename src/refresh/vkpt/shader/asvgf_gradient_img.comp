@@ -144,6 +144,6 @@ main()
 		}
 	}
 
-	imageStore(IMG_ASVGF_GRAD_LF_PING, ipos, vec4(grad_lf, 0, 0));
-	imageStore(IMG_ASVGF_GRAD_HF_SPEC_PING, ipos, vec4(grad_hf, grad_spec, 0, 0));
+	imageStore(IMG_ASVGF_GRAD_LF_PING, ipos, vec4(sanitize(grad_lf), 0, 0));
+	imageStore(IMG_ASVGF_GRAD_HF_SPEC_PING, ipos, vec4(sanitize(vec2(grad_hf, grad_spec)), 0, 0));
 }

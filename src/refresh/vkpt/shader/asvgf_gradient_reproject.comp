@@ -256,7 +256,7 @@ main()
 
 	imageStore(IMG_ASVGF_GRAD_SMPL_POS_A, pos_grad, uvec4(gradient_idx));
 
-	imageStore(IMG_ASVGF_GRAD_HF_SPEC_PING, pos_grad, vec4(found_prev_lum, 0, 0));
+	imageStore(IMG_ASVGF_GRAD_HF_SPEC_PING, pos_grad, vec4(sanitize(found_prev_lum), 0, 0));
 
 	imageStore(IMG_ASVGF_RNG_SEED_A, ipos, texelFetch(TEX_ASVGF_RNG_SEED_B, found_pos_prev, 0));
 	imageStore(IMG_PT_NORMAL_A, ipos, texelFetch(TEX_PT_NORMAL_B, found_pos_prev, 0));

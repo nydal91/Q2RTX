@@ -66,6 +66,6 @@ main()
 
 	final_color *= STORAGE_SCALE_HDR;
 	
-	imageStore(IMG_ASVGF_COLOR, ipos, vec4(final_color, checkerboard_flags));
+	imageStore(IMG_ASVGF_COLOR, ipos, vec4(sanitize(final_color), checkerboard_flags));
 }
 

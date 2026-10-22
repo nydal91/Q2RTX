@@ -291,17 +291,17 @@ main()
 	case 0: 
 		imageStore(IMG_ASVGF_HIST_COLOR_HF, ipos, uvec4(packRGBE(filtered_hf))); 
 		imageStore(IMG_ASVGF_ATROUS_PONG_SPEC, ipos, uvec4(packRGBE(filtered_spec)));
-		imageStore(IMG_ASVGF_ATROUS_PONG_MOMENTS, ipos, vec4(filtered_moments, 0, 0)); 
+		imageStore(IMG_ASVGF_ATROUS_PONG_MOMENTS, ipos, vec4(sanitize(filtered_moments), 0, 0)); 
 		break;
 	case 1: 
 		imageStore(IMG_ASVGF_ATROUS_PING_HF, ipos, uvec4(packRGBE(filtered_hf))); 
 		imageStore(IMG_ASVGF_ATROUS_PING_SPEC, ipos, uvec4(packRGBE(filtered_spec)));
-		imageStore(IMG_ASVGF_ATROUS_PING_MOMENTS, ipos, vec4(filtered_moments, 0, 0)); 
+		imageStore(IMG_ASVGF_ATROUS_PING_MOMENTS, ipos, vec4(sanitize(filtered_moments), 0, 0)); 
 		break;
 	case 2: 
 		imageStore(IMG_ASVGF_ATROUS_PONG_HF, ipos, uvec4(packRGBE(filtered_hf)));
 		imageStore(IMG_ASVGF_ATROUS_PONG_SPEC, ipos, uvec4(packRGBE(filtered_spec)));
-		imageStore(IMG_ASVGF_ATROUS_PONG_MOMENTS, ipos, vec4(filtered_moments, 0, 0)); 
+		imageStore(IMG_ASVGF_ATROUS_PONG_MOMENTS, ipos, vec4(sanitize(filtered_moments), 0, 0)); 
 		break;
 	}
 
@@ -396,7 +396,7 @@ main()
 
 		final_color *= STORAGE_SCALE_HDR;
 
-		imageStore(IMG_ASVGF_COLOR, ipos, vec4(final_color, checkerboard_flags));
+		imageStore(IMG_ASVGF_COLOR, ipos, vec4(sanitize(final_color), checkerboard_flags));
 	}
 }
 

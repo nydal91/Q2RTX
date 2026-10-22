@@ -289,7 +289,7 @@ main()
             linear_color_output = mix(prev_color, linear_color_output, global_ubo.temporal_blend_factor);
         }
         
-        imageStore(IMG_HQ_COLOR_INTERLEAVED, ipos, vec4(linear_color_output, 0));
+        imageStore(IMG_HQ_COLOR_INTERLEAVED, ipos, vec4(sanitize(linear_color_output), 0));
 
         color_output = PQEncode(linear_color_output);
     }
@@ -304,6 +304,6 @@ main()
         readback.hdr_color = linear_color_output;
     }
 
-    imageStore(IMG_ASVGF_TAA_A, ipos, vec4(color_output, 0));
-	imageStore(IMG_TAA_OUTPUT, ipos, vec4(linear_color_output, 1));
+    imageStore(IMG_ASVGF_TAA_A, ipos, vec4(sanitize(color_output), 0));
+	imageStore(IMG_TAA_OUTPUT, ipos, vec4(sanitize(linear_color_output), 1));
 }

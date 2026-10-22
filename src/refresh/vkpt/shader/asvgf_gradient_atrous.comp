@@ -118,13 +118,13 @@ main()
 	}
 
 	switch(push.iteration) {
-	case 0: imageStore(IMG_ASVGF_GRAD_LF_PONG, ipos, vec4(filtered_lf, 0, 0)); imageStore(IMG_ASVGF_GRAD_HF_SPEC_PONG, ipos, vec4(filtered_hf_spec, 0, 0)); break;
-	case 1: imageStore(IMG_ASVGF_GRAD_LF_PING, ipos, vec4(filtered_lf, 0, 0)); imageStore(IMG_ASVGF_GRAD_HF_SPEC_PING, ipos, vec4(filtered_hf_spec, 0, 0)); break;
-	case 2: imageStore(IMG_ASVGF_GRAD_LF_PONG, ipos, vec4(filtered_lf, 0, 0)); imageStore(IMG_ASVGF_GRAD_HF_SPEC_PONG, ipos, vec4(filtered_hf_spec, 0, 0)); break;
-	case 3: imageStore(IMG_ASVGF_GRAD_LF_PING, ipos, vec4(filtered_lf, 0, 0)); break;
-	case 4: imageStore(IMG_ASVGF_GRAD_LF_PONG, ipos, vec4(filtered_lf, 0, 0)); break;
-	case 5: imageStore(IMG_ASVGF_GRAD_LF_PING, ipos, vec4(filtered_lf, 0, 0)); break;
-	case 6: imageStore(IMG_ASVGF_GRAD_LF_PONG, ipos, vec4(filtered_lf, 0, 0)); break;
+	case 0: imageStore(IMG_ASVGF_GRAD_LF_PONG, ipos, vec4(sanitize(filtered_lf), 0, 0)); imageStore(IMG_ASVGF_GRAD_HF_SPEC_PONG, ipos, vec4(sanitize(filtered_hf_spec), 0, 0)); break;
+	case 1: imageStore(IMG_ASVGF_GRAD_LF_PING, ipos, vec4(sanitize(filtered_lf), 0, 0)); imageStore(IMG_ASVGF_GRAD_HF_SPEC_PING, ipos, vec4(sanitize(filtered_hf_spec), 0, 0)); break;
+	case 2: imageStore(IMG_ASVGF_GRAD_LF_PONG, ipos, vec4(sanitize(filtered_lf), 0, 0)); imageStore(IMG_ASVGF_GRAD_HF_SPEC_PONG, ipos, vec4(sanitize(filtered_hf_spec), 0, 0)); break;
+	case 3: imageStore(IMG_ASVGF_GRAD_LF_PING, ipos, vec4(sanitize(filtered_lf), 0, 0)); break;
+	case 4: imageStore(IMG_ASVGF_GRAD_LF_PONG, ipos, vec4(sanitize(filtered_lf), 0, 0)); break;
+	case 5: imageStore(IMG_ASVGF_GRAD_LF_PING, ipos, vec4(sanitize(filtered_lf), 0, 0)); break;
+	case 6: imageStore(IMG_ASVGF_GRAD_LF_PONG, ipos, vec4(sanitize(filtered_lf), 0, 0)); break;
 	}
 }
 
