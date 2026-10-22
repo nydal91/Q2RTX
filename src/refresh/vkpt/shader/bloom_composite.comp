@@ -28,6 +28,9 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 #define GLOBAL_TEXTURES_DESC_SET_IDX 1
 #include "global_textures.h"
 
+// NaN/Inf test on the bits; any(isnan()) may be optimized away by fast-math compilers (Adreno)
+bool finite4(vec4 v) { return all(notEqual(floatBitsToUint(v) & 0x7f800000u, uvec4(0x7f800000u))); }
+
 vec2 img_to_uv(ivec2 ipos)
 {
     vec2 uv = (vec2(ipos) + vec2(0.5, 0.5)) / vec2(global_ubo.taa_image_width, global_ubo.taa_image_height);
@@ -47,7 +50,7 @@ void main()
     vec4 src = textureLod(TEX_BLOOM_VBLUR, uv, 0);
     vec4 dst = textureLod(TEX_TAA_OUTPUT, uv, 0);
 
-    if (any(isnan(dst)) || any(isinf(dst))) {
+    if (!finite4(dst)) {
         return;
     }
 

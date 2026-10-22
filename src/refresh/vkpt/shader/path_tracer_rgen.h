@@ -919,7 +919,7 @@ get_sunlight(
 
 vec3 clamp_output(vec3 c)
 {
-	if(any(isnan(c)) || any(isinf(c)))
+	if(!is_finite(c))
 		return vec3(0);
 	else 
 		return clamp(c, vec3(0), vec3(MAX_OUTPUT_VALUE));

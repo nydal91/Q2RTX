@@ -483,7 +483,7 @@ main()
 
 	indirect_lighting(ipos, half_res, bounce_direction, bounce_contrib, is_specular_ray);
 
-	if(any(isinf(bounce_contrib)) || any(isnan(bounce_contrib)) || any(isinf(bounce_direction)) || any(isnan(bounce_direction)) )
+	if(!is_finite(bounce_contrib) || !is_finite(bounce_direction))
 		return;
 
 	bounce_contrib = clamp_output(bounce_contrib);

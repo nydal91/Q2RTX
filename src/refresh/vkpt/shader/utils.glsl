@@ -431,6 +431,10 @@ float sanitize(float v) { return is_finite_bits(v) ? v : 0.0; }
 vec2 sanitize(vec2 v) { return vec2(sanitize(v.x), sanitize(v.y)); }
 vec3 sanitize(vec3 v) { return vec3(sanitize(v.x), sanitize(v.y), sanitize(v.z)); }
 vec4 sanitize(vec4 v) { return vec4(sanitize(v.x), sanitize(v.y), sanitize(v.z), sanitize(v.w)); }
+// Replacements for any(isnan(v)) || any(isinf(v)), which fast-math shader compilers may remove.
+bool is_finite(vec2 v) { return is_finite_bits(v.x) && is_finite_bits(v.y); }
+bool is_finite(vec3 v) { return is_finite_bits(v.x) && is_finite_bits(v.y) && is_finite_bits(v.z); }
+bool is_finite(vec4 v) { return is_finite(v.xyz) && is_finite_bits(v.w); }
 
 // Use a macro to work around the glslangValidator errors about function argument type mismatch
 #define STORE_SH(img_shY, img_CoCg, p, sh) { imageStore(img_shY, p, sanitize(sh.shY)); imageStore(img_CoCg, p, vec4(sanitize(sh.CoCg), 0, 0)); }

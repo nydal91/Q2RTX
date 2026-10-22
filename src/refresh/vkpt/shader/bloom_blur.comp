@@ -37,6 +37,9 @@ layout (push_constant) uniform push_constant_block {
 #define GLOBAL_TEXTURES_DESC_SET_IDX 1
 #include "global_textures.h"
 
+// NaN/Inf test on the bits; any(isnan()) may be optimized away by fast-math compilers (Adreno)
+bool finite4(vec4 v) { return all(notEqual(floatBitsToUint(v) & 0x7f800000u, uvec4(0x7f800000u))); }
+
 vec2 img_to_uv(vec2 ipos)
 {
     vec2 uv = ipos / vec2(global_ubo.taa_image_width / 4, global_ubo.taa_image_height / 4);
@@ -86,7 +89,7 @@ main()
 
     vec4 bloom_input = load_input(ipos);
 
-    if (any(isnan(bloom_input)) || any(isinf(bloom_input))) {
+    if (!finite4(bloom_input)) {
         write_output(ipos, vec4(0, 0, 0, 1));
         return;
     }
@@ -111,13 +114,13 @@ main()
         vec3 pix;
 
         pix = fetch_input(uv1).rgb;
-        if (any(isnan(pix))) {
+        if (!finite4(vec4(pix, 0))) {
             pix = vec3(0);
         }
         result += pix * w12;
 
         pix = fetch_input(uv2).rgb;
-        if (any(isnan(pix))) {
+        if (!finite4(vec4(pix, 0))) {
             pix = vec3(0);
         }
         result += pix * w12;

@@ -247,7 +247,7 @@ main()
             // Motion vector was valid - sample the previous frame
             vec3 color_prev = sample_texture_catmull_rom(TEX_ASVGF_TAA_B, pos_prev).rgb;
 
-            if(!any(isnan(color_prev)))
+            if(is_finite(color_prev))
             {
                 // If enabled, apply neighbourhood color clamping (NCC)
                 if(global_ubo.flt_taa_variance > 0)
