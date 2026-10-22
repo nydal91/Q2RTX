@@ -17,8 +17,8 @@ android {
         // with hardware ray tracing ships Android 13+ anyway.
         minSdk 29
         targetSdk 34
-        versionCode 10816
-        versionName "1.8.1-android.16"
+        versionCode 10817
+        versionName "1.8.1-android.17"
 
         ndk {
             // Ray-tracing capable mobile GPUs are all 64-bit ARM SoCs.

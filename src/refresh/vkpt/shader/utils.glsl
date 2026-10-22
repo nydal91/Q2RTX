@@ -380,6 +380,16 @@ SH irradiance_to_SH(vec3 color, vec3 dir)
     return result;
 }
 
+// Brightness of an SH-encoded irradiance sample, for comparisons only.
+float sh_luminance(SH sh)
+{
+#if ENABLE_SH
+    return max(sh.shY.w, 0.0); // L00 * Y
+#else
+    return luminance(sh.shY.rgb);
+#endif
+}
+
 vec3 SH_to_irradiance(SH sh)
 {
     float   Y       = sh.shY.w / 0.282095;

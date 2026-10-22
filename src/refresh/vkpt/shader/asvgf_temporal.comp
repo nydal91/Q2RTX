@@ -321,6 +321,27 @@ main()
 		float lum_spec = luminance(color_curr_spec);
 		if(lum_spec > limit_spec)
 			color_curr_spec *= limit_spec / lum_spec;
+
+		// Same for the LF channel (indirect / bounce light). With half-resolution bounce
+		// rays only every other row is traced per frame, so look two rows up and down too.
+		float max_lf = 0;
+		for(int dy = -2; dy <= 2; dy++)
+		{
+			for(int dx = -1; dx <= 1; dx++)
+			{
+				if(dx == 0 && dy == 0)
+					continue;
+				max_lf = max(max_lf, sh_luminance(load_SH(TEX_PT_COLOR_LF_SH, TEX_PT_COLOR_LF_COCG, ipos + ivec2(dx, dy))));
+			}
+		}
+		float limit_lf = max(max_lf * global_ubo.flt_firefly_clamp, 1e-3);
+		float lum_lf = sh_luminance(color_curr_lf);
+		if(lum_lf > limit_lf)
+		{
+			float k = limit_lf / lum_lf;
+			color_curr_lf.shY *= k;
+			color_curr_lf.CoCg *= k;
+		}
 	}
 
 	SH out_color_lf;
