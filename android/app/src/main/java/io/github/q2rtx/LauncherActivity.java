@@ -299,6 +299,7 @@ public class LauncherActivity extends Activity {
             (GraphicsTests.noDenoiser(this) ? "✔ " : "    ") + "Denoiser off (grainy image)",
             (GraphicsTests.simpleSky(this) ? "✔ " : "    ") + "Simple sky",
             (GraphicsTests.lightLoad(this) ? "✔ " : "    ") + "Light load (low resolution, no bounces)",
+            (GraphicsTests.noFireflyFilter(this) ? "✔ " : "    ") + "Bright-spot filter off",
             "↺ Reset all to default",
         };
         new AlertDialog.Builder(this)
@@ -311,7 +312,8 @@ public class LauncherActivity extends Activity {
                     case 1: GraphicsTests.setNoDenoiser(c, !GraphicsTests.noDenoiser(c)); break;
                     case 2: GraphicsTests.setSimpleSky(c, !GraphicsTests.simpleSky(c)); break;
                     case 3: GraphicsTests.setLightLoad(c, !GraphicsTests.lightLoad(c)); break;
-                    case 4: GraphicsTests.reset(c); break;
+                    case 4: GraphicsTests.setNoFireflyFilter(c, !GraphicsTests.noFireflyFilter(c)); break;
+                    case 5: GraphicsTests.reset(c); break;
                     }
                     refresh();
                     showTestsDialog();

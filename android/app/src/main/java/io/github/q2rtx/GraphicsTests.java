@@ -26,6 +26,8 @@ final class GraphicsTests {
     static boolean noDenoiser(Context c) { return prefs(c).getBoolean("t_no_denoiser", false); }
     static boolean simpleSky(Context c) { return prefs(c).getBoolean("t_simple_sky", false); }
     static boolean lightLoad(Context c) { return prefs(c).getBoolean("t_light_load", false); }
+    static boolean noFireflyFilter(Context c) { return prefs(c).getBoolean("t_no_firefly", false); }
+    static void setNoFireflyFilter(Context c, boolean v) { prefs(c).edit().putBoolean("t_no_firefly", v).apply(); }
 
     static void setShader(Context c, int i) { prefs(c).edit().putInt("t_shader", i).apply(); }
     static void setNoDenoiser(Context c, boolean v) { prefs(c).edit().putBoolean("t_no_denoiser", v).apply(); }
@@ -33,11 +35,11 @@ final class GraphicsTests {
     static void setLightLoad(Context c, boolean v) { prefs(c).edit().putBoolean("t_light_load", v).apply(); }
 
     static void reset(Context c) {
-        prefs(c).edit().remove("t_shader").remove("t_no_denoiser").remove("t_simple_sky").remove("t_light_load").apply();
+        prefs(c).edit().remove("t_shader").remove("t_no_denoiser").remove("t_simple_sky").remove("t_light_load").remove("t_no_firefly").apply();
     }
 
     static boolean anyActive(Context c) {
-        return shader(c) != 0 || noDenoiser(c) || simpleSky(c) || lightLoad(c);
+        return shader(c) != 0 || noDenoiser(c) || simpleSky(c) || lightLoad(c) || noFireflyFilter(c);
     }
 
     static List<String> engineArguments(Context c) {
@@ -45,6 +47,7 @@ final class GraphicsTests {
         set(a, "pt_query_shader", SHADERS[shader(c)]);
         set(a, "flt_enable", noDenoiser(c) ? "0" : "1");
         set(a, "physical_sky", simpleSky(c) ? "0" : "2");
+        set(a, "flt_firefly_clamp", noFireflyFilter(c) ? "0" : "8");
         if (lightLoad(c)) {
             // much less ray tracing work per frame (for GPU time-outs / "device lost")
             set(a, "drs_enable", "0");

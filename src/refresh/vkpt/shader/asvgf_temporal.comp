@@ -293,6 +293,36 @@ main()
 	vec3 color_curr_hf = unpackRGBE(texelFetch(TEX_PT_COLOR_HF, ipos, 0).x);
 	vec3 color_curr_spec = unpackRGBE(texelFetch(TEX_PT_COLOR_SPEC, ipos, 0).x);
 
+	// Firefly suppression: a lone pixel much brighter than all its neighbors is
+	// almost certainly a sampling outlier, and the denoiser would blur it into a
+	// glowing blob. Adreno 830 produces such outliers, so the Android port enables
+	// this by default (flt_firefly_clamp); 0 leaves the image untouched.
+	if(global_ubo.flt_firefly_clamp > 0)
+	{
+		float max_hf = 0, max_spec = 0;
+		for(int dy = -1; dy <= 1; dy++)
+		{
+			for(int dx = -1; dx <= 1; dx++)
+			{
+				if(dx == 0 && dy == 0)
+					continue;
+				ivec2 p = ipos + ivec2(dx, dy);
+				max_hf = max(max_hf, luminance(unpackRGBE(texelFetch(TEX_PT_COLOR_HF, p, 0).x)));
+				max_spec = max(max_spec, luminance(unpackRGBE(texelFetch(TEX_PT_COLOR_SPEC, p, 0).x)));
+			}
+		}
+
+		float limit_hf = max(max_hf * global_ubo.flt_firefly_clamp, 1e-3);
+		float lum_hf = luminance(color_curr_hf);
+		if(lum_hf > limit_hf)
+			color_curr_hf *= limit_hf / lum_hf;
+
+		float limit_spec = max(max_spec * global_ubo.flt_firefly_clamp, 1e-3);
+		float lum_spec = luminance(color_curr_spec);
+		if(lum_spec > limit_spec)
+			color_curr_spec *= limit_spec / lum_spec;
+	}
+
 	SH out_color_lf;
 	vec3 out_color_hf;
 	vec4 out_color_histlen_spec;
