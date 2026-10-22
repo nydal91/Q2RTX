@@ -125,7 +125,7 @@ static const char android_default_cfg[] =
     "set pt_num_bounce_rays 0.5\n"          // half-res diffuse bounce
     "set pt_reflect_refract 1\n"
     "set pt_caustics 0\n"
-    "set flt_firefly_clamp 8\n"           // tame bright outlier pixels (Adreno 830) before denoising
+    "set flt_firefly_clamp 4\n"           // tame bright outlier pixels (Adreno 830) before denoising
     "set gr_enable 0\n"                     // god rays
     "set physical_sky_draw_clouds 0\n"
     "set cl_maxfps 60\n"

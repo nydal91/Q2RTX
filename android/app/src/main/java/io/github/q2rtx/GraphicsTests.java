@@ -47,7 +47,7 @@ final class GraphicsTests {
         set(a, "pt_query_shader", SHADERS[shader(c)]);
         set(a, "flt_enable", noDenoiser(c) ? "0" : "1");
         set(a, "physical_sky", simpleSky(c) ? "0" : "2");
-        set(a, "flt_firefly_clamp", noFireflyFilter(c) ? "0" : "8");
+        set(a, "flt_firefly_clamp", noFireflyFilter(c) ? "0" : "4");
         if (lightLoad(c)) {
             // much less ray tracing work per frame (for GPU time-outs / "device lost")
             set(a, "drs_enable", "0");
