@@ -47,7 +47,7 @@ public class LauncherActivity extends Activity {
     private static final int GREEN = Color.rgb(118, 185, 0);
 
     private TextView status;
-    private Button importButton, playButton, driverButton;
+    private Button importButton, playButton, driverButton, testsButton;
     private volatile boolean importing;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -146,6 +146,15 @@ public class LauncherActivity extends Activity {
         lp3.topMargin = dp(12);
         col.addView(driverButton, lp3);
 
+        testsButton = new Button(this);
+        testsButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showTestsDialog(); }
+        });
+        LinearLayout.LayoutParams lp4 = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp4.topMargin = dp(8);
+        col.addView(testsButton, lp4);
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(Color.rgb(12, 12, 12));
@@ -170,6 +179,7 @@ public class LauncherActivity extends Activity {
         GpuDrivers.Driver driver = GpuDrivers.selected(this);
         driverButton.setText("GPU driver: " + (driver == null ? "System" : driver.label()));
         driverButton.setEnabled(!importing);
+        testsButton.setText("Graphics tests: " + (GraphicsTests.anyActive(this) ? "ON" : "off"));
     }
 
     private void play() {
@@ -280,6 +290,37 @@ public class LauncherActivity extends Activity {
         }, "q2rtx-driver").start();
     }
 
+    // ------------------------------------------------------ graphics tests
+
+    /** Tap a row to change it; the list reopens so several can be set in a row. */
+    private void showTestsDialog() {
+        final String[] items = {
+            "Shader build: " + GraphicsTests.SHADER_LABELS[GraphicsTests.shader(this)] + "  (tap to change)",
+            (GraphicsTests.noDenoiser(this) ? "✔ " : "    ") + "Denoiser off (grainy image)",
+            (GraphicsTests.simpleSky(this) ? "✔ " : "    ") + "Simple sky",
+            (GraphicsTests.lightLoad(this) ? "✔ " : "    ") + "Light load (low resolution, no bounces)",
+            "↺ Reset all to default",
+        };
+        new AlertDialog.Builder(this)
+            .setTitle("Graphics tests")
+            .setItems(items, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    Context c = LauncherActivity.this;
+                    switch (which) {
+                    case 0: GraphicsTests.setShader(c, (GraphicsTests.shader(c) + 1) % GraphicsTests.SHADERS.length); break;
+                    case 1: GraphicsTests.setNoDenoiser(c, !GraphicsTests.noDenoiser(c)); break;
+                    case 2: GraphicsTests.setSimpleSky(c, !GraphicsTests.simpleSky(c)); break;
+                    case 3: GraphicsTests.setLightLoad(c, !GraphicsTests.lightLoad(c)); break;
+                    case 4: GraphicsTests.reset(c); break;
+                    }
+                    refresh();
+                    showTestsDialog();
+                }
+            })
+            .setNegativeButton("Done", null)
+            .show();
+    }
+
     // ----------------------------------------------------------------- log
 
     /**
@@ -336,7 +377,7 @@ public class LauncherActivity extends Activity {
 
         StringBuilder sb = new StringBuilder();
         String[] keys = { "Engine version", "GPU:", "Limits:", "Optional features", "FP16", "Picked physical",
-            "Using VK_", "Vulkan:", "Vulkan driver", "custom Vulkan", "Linear filtering", "Recreated", "rror", "ailed", "ouldn't", "WARNING", "FATAL", "not support" };
+            "Using VK_", "Vulkan:", "Vulkan driver", "Test settings", "custom Vulkan", "Linear filtering", "Recreated", "rror", "ailed", "ouldn't", "WARNING", "FATAL", "not support" };
         for (String l : lines) {
             for (String k : keys) {
                 if (l.contains(k)) {

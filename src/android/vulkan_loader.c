@@ -102,6 +102,14 @@ bool VK_LoadLibrary(void)
         return false;
     }
 
+    // what the launcher's "Graphics tests" switches set (they arrive as +set)
+    Com_Printf("Test settings: pt_query_shader='%s' flt_enable=%s physical_sky=%s viewsize=%s drs_enable=%s "
+               "pt_num_bounce_rays=%s pt_reflect_refract=%s\n",
+               Cvar_VariableString("pt_query_shader"), Cvar_VariableString("flt_enable"),
+               Cvar_VariableString("physical_sky"), Cvar_VariableString("viewsize"),
+               Cvar_VariableString("drs_enable"), Cvar_VariableString("pt_num_bounce_rays"),
+               Cvar_VariableString("pt_reflect_refract"));
+
     volkInitializeCustom(get_instance_proc_addr);
     vulkan_library = lib;
     Com_Printf("Vulkan: using the %s (instance version %u.%u)\n", driver_description,

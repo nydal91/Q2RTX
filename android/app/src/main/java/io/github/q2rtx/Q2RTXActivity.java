@@ -17,10 +17,12 @@ public class Q2RTXActivity extends SDLActivity {
         return new String[] { "SDL2", "main" };
     }
 
-    /** Command line for the engine: tells it which GPU driver to load (see GpuDrivers). */
+    /** Command line for the engine: GPU driver (GpuDrivers) and test switches (GraphicsTests). */
     @Override
     protected String[] getArguments() {
-        return GpuDrivers.engineArguments(this).toArray(new String[0]);
+        java.util.List<String> args = GpuDrivers.engineArguments(this);
+        args.addAll(GraphicsTests.engineArguments(this));
+        return args.toArray(new String[0]);
     }
 
     @Override
