@@ -334,6 +334,20 @@ struct SH
 // Does not affect the performance, just for A/B image comparison.
 #define ENABLE_SH 1
 
+// Scale chroma (Co, Cg) toward grey just enough that the YCoCg color has no
+// negative RGB component. Out-of-gamut chroma would otherwise turn into fully
+// saturated green / purple / blue after max(rgb, 0).
+vec2 limit_chroma_to_gamut(vec2 CoCg, float Y)
+{
+    float d_r = 0.5 * (CoCg.x - CoCg.y); // R = Y + d_r
+    float d_g = 0.5 * CoCg.y;            // G = Y + d_g
+    float d_b = -0.5 * (CoCg.x + CoCg.y); // B = Y + d_b
+    float most_negative = -min(min(d_r, d_g), min(d_b, 0.0));
+    if(most_negative > Y)
+        CoCg *= max(Y, 0.0) / most_negative;
+    return CoCg;
+}
+
 vec3 project_SH_irradiance(SH sh, vec3 N)
 {
 #if ENABLE_SH
@@ -341,7 +355,11 @@ vec3 project_SH_irradiance(SH sh, vec3 N)
     float Y = 2.0 * (1.023326 * d + 0.886226 * sh.shY.w);
     Y = max(Y, 0.0);
 
-    sh.CoCg *= Y * 0.282095 / (sh.shY.w + 1e-6);
+    // The chroma is stored relative to the average luminance shY.w. Where that is
+    // close to zero (or slightly negative after filtering) the ratio blows up and
+    // gave saturated colored blobs on Adreno 830; there is no meaningful color there.
+    sh.CoCg = (sh.shY.w > 1e-4) ? sh.CoCg * (Y * 0.282095 / sh.shY.w) : vec2(0);
+    sh.CoCg = limit_chroma_to_gamut(sh.CoCg, Y);
 
     float   T       = Y - sh.CoCg.y * 0.5;
     float   G       = sh.CoCg.y + T;
@@ -392,7 +410,8 @@ float sh_luminance(SH sh)
 
 vec3 SH_to_irradiance(SH sh)
 {
-    float   Y       = sh.shY.w / 0.282095;
+    float   Y       = max(sh.shY.w / 0.282095, 0.0);
+    sh.CoCg = limit_chroma_to_gamut(sh.CoCg, Y);
 
     float   T       = Y - sh.CoCg.y * 0.5;
     float   G       = sh.CoCg.y + T;
