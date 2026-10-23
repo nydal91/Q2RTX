@@ -24,6 +24,10 @@ the Free Software Foundation; either version 2 of the License, or
 // Opens libvulkan and initializes volk. Safe to call more than once.
 bool VK_LoadLibrary(void);
 
+// After vkCreateInstance: copies libadrenotools' messages (why a custom driver did or
+// didn't load) from logcat into the console log.
+void VK_ReportDriverHook(void);
+
 // Human-readable description of the Vulkan driver in use, for logs and error messages.
 const char *VK_DriverDescription(void);
 

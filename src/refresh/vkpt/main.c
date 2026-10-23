@@ -1099,6 +1099,9 @@ init_vulkan(void)
 	/* pick physical device (iterate over all but pick device 0 anyways) */
 	uint32_t num_devices = 0;
 	_VK(vkEnumeratePhysicalDevices(qvk.instance, &num_devices, NULL));
+#ifdef USE_VOLK
+	VK_ReportDriverHook();
+#endif
 	if(num_devices == 0)
 		return false;
 	VkPhysicalDevice *devices = alloca(sizeof(VkPhysicalDevice) *num_devices);

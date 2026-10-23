@@ -30,6 +30,11 @@ GNU General Public License for more details.
 #include <SDL2/SDL_syswm.h>
 #include <adrenotools/driver.h>
 #include <dlfcn.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+static bool custom_driver_requested;
 
 static void *vulkan_library;
 static char driver_description[256] = "system Vulkan driver";
@@ -67,8 +72,21 @@ static void *open_custom_driver(void)
 
     Com_Printf("Loading custom Vulkan driver %s%s\n", driver_dir, name->string);
 
-    void *lib = adrenotools_open_libvulkan(RTLD_NOW | RTLD_LOCAL, ADRENOTOOLS_DRIVER_CUSTOM,
-                                           NULL, hook->string, driver_dir, name->string, NULL, NULL);
+    // Qualcomm's own driver builds try to open files under /data/misc/gpu etc. (shader
+    // cache, config) that the app can't access; redirect those into the driver's folder,
+    // as the Switch emulators do. Harmless for Mesa Turnip.
+    char redirect_dir[MAX_OSPATH];
+    Q_concat(redirect_dir, sizeof(redirect_dir), driver_dir, "file_redirect/");
+    mkdir(redirect_dir, 0755);
+
+    void *lib = adrenotools_open_libvulkan(RTLD_NOW | RTLD_LOCAL,
+                                           ADRENOTOOLS_DRIVER_CUSTOM | ADRENOTOOLS_DRIVER_FILE_REDIRECT,
+                                           NULL, hook->string, driver_dir, name->string, redirect_dir, NULL);
+    if (!lib) {
+        Com_WPrintf("Retrying the custom driver without file redirection\n");
+        lib = adrenotools_open_libvulkan(RTLD_NOW | RTLD_LOCAL, ADRENOTOOLS_DRIVER_CUSTOM,
+                                         NULL, hook->string, driver_dir, name->string, NULL, NULL);
+    }
     if (!lib) {
         Com_WPrintf("libadrenotools couldn't load the custom Vulkan driver %s%s; "
                     "falling back to the system driver.\n", driver_dir, name->string);
@@ -78,6 +96,7 @@ static void *open_custom_driver(void)
     }
 
     Q_snprintf(driver_description, sizeof(driver_description), "custom Vulkan driver %s", name->string);
+    custom_driver_requested = true;
     return lib;
 }
 
@@ -136,4 +155,37 @@ VkResult VK_CreateWindowSurface(SDL_Window *window, VkInstance instance, VkSurfa
         .window = info.info.android.window,
     };
     return vkCreateAndroidSurfaceKHR(instance, &create_info, NULL, surface);
+}
+
+/*
+ * libadrenotools loads the custom driver lazily, when the Vulkan loader first opens the
+ * driver (vkCreateInstance), and if that fails it silently falls back to the system
+ * driver. Its reasons only go to logcat, so copy its lines into the console log.
+ * (Apps may read their own process's logcat output.)
+ */
+void VK_ReportDriverHook(void)
+{
+    if (!custom_driver_requested)
+        return;
+
+    // only this run's messages (--pid), from the libadrenotools tags
+    char cmd[160];
+    Q_snprintf(cmd, sizeof(cmd), "logcat -d -v brief --pid=%d -s hook_impl:V linkernsbypass:V adrenotools:V", (int)getpid());
+    FILE *f = popen(cmd, "r");
+    if (!f) {
+        Com_WPrintf("Couldn't read logcat for the custom driver loader\n");
+        return;
+    }
+
+    char line[512];
+    int n = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (!strstr(line, "hook_") && !strstr(line, "linkernsbypass") && !strstr(line, "adrenotools"))
+            continue;
+        Com_Printf("Driver loader: %s", line);
+        n++;
+    }
+    pclose(f);
+    if (!n)
+        Com_Printf("Driver loader: no messages (the hook didn't run)\n");
 }
