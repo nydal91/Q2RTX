@@ -96,11 +96,120 @@ final class GpuDrivers {
         Driver d = selected(ctx);
         if (d == null)
             return args;
+        String library = d.library;
+        try {
+            library = uniqueSonameLibrary(d);
+        } catch (IOException e) {
+            Log.w(TAG, "Couldn't give " + d.library + " a unique soname", e);
+        }
         args.addAll(Arrays.asList(
             "+set", "vk_hook_dir", ctx.getApplicationInfo().nativeLibraryDir,
             "+set", "vk_driver_dir", d.dir.getAbsolutePath() + "/",
-            "+set", "vk_driver_name", d.library));
+            "+set", "vk_driver_name", library));
         return args;
+    }
+
+    /*
+     * The system driver (vulkan.adreno.so) is usually already loaded in our process,
+     * because Android draws the app's UI with Vulkan. A custom driver with the same
+     * soname is then silently resolved to that already-loaded system driver. Qualcomm
+     * driver packages often keep the original name, so give them a private copy whose
+     * file name and DT_SONAME are unique (same length, so the ELF layout is unchanged).
+     */
+    private static final String SYSTEM_DRIVER_SONAME = "vulkan.adreno.so";
+    private static final String UNIQUE_SONAME = "vulkan.q2rtx1.so"; // same length as above
+
+    static String uniqueSonameLibrary(Driver d) throws IOException {
+        File src = new File(d.dir, d.library);
+        File patched = new File(d.dir, UNIQUE_SONAME);
+        if (patched.isFile() && patched.lastModified() >= src.lastModified())
+            return UNIQUE_SONAME;
+
+        byte[] elf = readAll(src);
+        int sonameOffset = findSoname(elf);
+        if (sonameOffset < 0)
+            return d.library;
+        String soname = cString(elf, sonameOffset);
+        if (!soname.equals(SYSTEM_DRIVER_SONAME))
+            return d.library;
+
+        byte[] name = UNIQUE_SONAME.getBytes(StandardCharsets.US_ASCII);
+        System.arraycopy(name, 0, elf, sonameOffset, name.length);
+
+        File tmp = new File(d.dir, UNIQUE_SONAME + ".tmp");
+        try (OutputStream out = new FileOutputStream(tmp)) {
+            out.write(elf);
+        }
+        patched.setWritable(true);
+        patched.delete();
+        if (!tmp.renameTo(patched))
+            throw new IOException("Couldn't write " + patched);
+        patched.setReadOnly();
+        Log.i(TAG, "Gave " + d.library + " the unique soname " + UNIQUE_SONAME);
+        return UNIQUE_SONAME;
+    }
+
+    /** File offset of the DT_SONAME string of a 64-bit little-endian ELF, or -1. */
+    private static int findSoname(byte[] e) {
+        if (e.length < 64 || e[0] != 0x7f || e[1] != 'E' || e[2] != 'L' || e[3] != 'F' || e[4] != 2 || e[5] != 1)
+            return -1;
+        long phoff = le64(e, 0x20);
+        int phentsize = le16(e, 0x36), phnum = le16(e, 0x38);
+
+        long dynOff = -1, dynSize = 0;
+        for (int i = 0; i < phnum; i++) {
+            int ph = (int) (phoff + (long) i * phentsize);
+            if (le32(e, ph) == 2 /* PT_DYNAMIC */) {
+                dynOff = le64(e, ph + 0x08);
+                dynSize = le64(e, ph + 0x20);
+            }
+        }
+        if (dynOff < 0)
+            return -1;
+
+        long strtabVaddr = -1, sonameIndex = -1;
+        for (long p = dynOff; p + 16 <= dynOff + dynSize; p += 16) {
+            long tag = le64(e, (int) p), val = le64(e, (int) p + 8);
+            if (tag == 0) break;
+            if (tag == 5 /* DT_STRTAB */) strtabVaddr = val;
+            if (tag == 14 /* DT_SONAME */) sonameIndex = val;
+        }
+        if (strtabVaddr < 0 || sonameIndex < 0)
+            return -1;
+
+        // translate the string table's virtual address through the PT_LOAD segments
+        for (int i = 0; i < phnum; i++) {
+            int ph = (int) (phoff + (long) i * phentsize);
+            if (le32(e, ph) != 1 /* PT_LOAD */)
+                continue;
+            long off = le64(e, ph + 0x08), vaddr = le64(e, ph + 0x10), filesz = le64(e, ph + 0x20);
+            if (strtabVaddr >= vaddr && strtabVaddr < vaddr + filesz) {
+                long pos = strtabVaddr - vaddr + off + sonameIndex;
+                return pos < e.length ? (int) pos : -1;
+            }
+        }
+        return -1;
+    }
+
+    private static String cString(byte[] e, int off) {
+        int end = off;
+        while (end < e.length && e[end] != 0)
+            end++;
+        return new String(e, off, end - off, StandardCharsets.US_ASCII);
+    }
+
+    private static int le16(byte[] e, int o) { return (e[o] & 0xff) | (e[o + 1] & 0xff) << 8; }
+    private static long le32(byte[] e, int o) { return (le16(e, o) | (long) le16(e, o + 2) << 16) & 0xffffffffL; }
+    private static long le64(byte[] e, int o) { return le32(e, o) | le32(e, o + 4) << 32; }
+
+    private static byte[] readAll(File f) throws IOException {
+        try (InputStream in = new FileInputStream(f)) {
+            byte[] data = new byte[(int) f.length()];
+            int off = 0, n;
+            while (off < data.length && (n = in.read(data, off, data.length - off)) > 0)
+                off += n;
+            return data;
+        }
     }
 
     /** Installs a driver package (zip). Returns the installed driver. */
@@ -203,7 +312,7 @@ final class GpuDrivers {
             File[] files = dir.listFiles();
             if (files != null)
                 for (File f : files)
-                    if (f.getName().endsWith(".so"))
+                    if (f.getName().endsWith(".so") && !f.getName().equals(UNIQUE_SONAME))
                         library = f.getName();
         }
         return library == null ? null : new Driver(dir, library, name, version);
